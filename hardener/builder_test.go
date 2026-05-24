@@ -531,6 +531,41 @@ func tarSymlinks(t *testing.T, rc io.Reader) map[string]string {
 	return out
 }
 
+// TestBuildLayer_SkipsENOTDIRPaths verifies that paths where a file is used as
+// a directory component (e.g. "foo.php/.htaccess" where foo.php is a regular
+// file) are silently skipped rather than causing a fatal error.  This mirrors
+// what Apache emits: it probes "foo.php/.htaccess" via openat() even though
+// the kernel will return ENOTDIR — the sensor records the probe, so the
+// hardener must handle it gracefully.
+func TestBuildLayer_SkipsENOTDIRPaths(t *testing.T) {
+	dir := t.TempDir()
+	// Create a regular file where the manifest also references a "child" path.
+	createFile(t, dir, "/var/www/html/healthz.php")
+	createFile(t, dir, "/var/www/html/index.php")
+
+	m := &manifest.Manifest{
+		Files: map[string]manifest.FileEntry{
+			"/var/www/html/index.php":           {Source: manifest.SourceDirect},
+			"/var/www/html/healthz.php":         {Source: manifest.SourceDirect},
+			// This path has healthz.php as a directory component — must be skipped.
+			"/var/www/html/healthz.php/.htaccess": {Source: manifest.SourceDirect},
+		},
+	}
+
+	rc, err := buildLayer(m, dir)
+	if err != nil {
+		t.Fatalf("buildLayer returned error on ENOTDIR path: %v", err)
+	}
+	defer rc.Close()
+
+	names := tarEntryNames(t, rc)
+	for _, name := range names {
+		if name == "var/www/html/healthz.php/.htaccess" {
+			t.Errorf("ENOTDIR path %q must not appear in tar layer", name)
+		}
+	}
+}
+
 // contains reports whether s contains sub.
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsHelper(s, sub))
