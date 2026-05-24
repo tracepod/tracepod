@@ -9,12 +9,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -546,6 +548,12 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 			continue // ENOENT probe or scratch-compat file absent from this image
 		}
 		if err != nil {
+			// ENOTDIR means a path component is a file, not a directory
+			// (e.g. kernel recorded "foo.php/.htaccess" from an Apache htaccess
+			// probe that can never succeed). Treat it the same as ENOENT.
+			if isNotDirErr(err) {
+				continue
+			}
 			return fmt.Errorf("stat %s: %w", src, err)
 		}
 
@@ -658,4 +666,17 @@ func buildCraneOptions(ctx context.Context, opts BuildOptions) []crane.Option {
 		out = append(out, crane.Insecure)
 	}
 	return out
+}
+
+// isNotDirErr returns true when err indicates that a path component that was
+// expected to be a directory is actually a file (ENOTDIR).  This happens when
+// the sensor records kernel-level probes for paths that can never resolve —
+// e.g. Apache's .htaccess scan emits openat("foo.php/.htaccess") where
+// foo.php is a regular file.  These paths should be skipped, not failed.
+func isNotDirErr(err error) bool {
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) {
+		return errors.Is(pathErr.Err, syscall.ENOTDIR)
+	}
+	return errors.Is(err, syscall.ENOTDIR)
 }
