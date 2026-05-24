@@ -1,0 +1,75 @@
+name: Edge
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker-sensor-amd64:
+    name: sensor edge (amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push amd64 edge sensor image
+        run: |
+          COMMIT=${GITHUB_SHA::8}
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION=edge \
+            --build-arg COMMIT=${COMMIT} \
+            -t ghcr.io/tracepod/tracepod-sensor:edge-amd64 \
+            --push \
+            -f Dockerfile.sensor \
+            .
+
+  docker-sensor-arm64:
+    name: sensor edge (arm64)
+    runs-on: ubuntu-24.04-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push arm64 edge sensor image
+        run: |
+          COMMIT=${GITHUB_SHA::8}
+          docker build \
+            --platform linux/arm64 \
+            --build-arg VERSION=edge \
+            --build-arg COMMIT=${COMMIT} \
+            -t ghcr.io/tracepod/tracepod-sensor:edge-arm64 \
+            --push \
+            -f Dockerfile.sensor \
+            .
+
+  docker-sensor-manifest:
+    name: sensor edge manifest
+    needs: [docker-sensor-amd64, docker-sensor-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create and push edge manifest
+        run: |
+          docker manifest create ghcr.io/tracepod/tracepod-sensor:edge \
+            ghcr.io/tracepod/tracepod-sensor:edge-amd64 \
+            ghcr.io/tracepod/tracepod-sensor:edge-arm64
+          docker manifest push ghcr.io/tracepod/tracepod-sensor:edge

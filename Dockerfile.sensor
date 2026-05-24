@@ -1,0 +1,64 @@
+# Tracepod sensor Dockerfile
+#
+# Builds the eBPF sensor binary. Native runners required per arch — bpf2go
+# cannot cross-compile BPF objects because vmlinux.h is arch-specific BTF.
+#
+# Build args:
+#   TARGETARCH   set automatically by buildx (amd64 or arm64)
+#   VERSION      e.g. v0.1.0  (default: dev)
+#   COMMIT       short git SHA (default: unknown)
+#   GO_VERSION   Go toolchain version to install (default: 1.26.0)
+
+# ── Stage 1: build ─────────────────────────────────────────────────────────────
+FROM ubuntu:24.04 AS builder
+
+ARG TARGETARCH
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG GO_VERSION=1.26.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        clang-18 llvm-18 libbpf-dev \
+        curl ca-certificates make \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG BPFTOOL_VERSION=v7.7.0
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL \
+      "https://github.com/libbpf/bpftool/releases/download/${BPFTOOL_VERSION}/bpftool-${BPFTOOL_VERSION}-${ARCH}.tar.gz" \
+    | tar -xz -C /usr/local/bin && \
+    chmod +x /usr/local/bin/bpftool
+
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
+    | tar -C /usr/local -xz
+ENV PATH="/usr/local/go/bin:$PATH" \
+    GOPATH="/go" \
+    GOMODCACHE="/go/pkg/mod"
+
+WORKDIR /src
+COPY . ./
+
+RUN go mod download
+
+# arm64: BPF objects are committed to git — skip make generate.
+# amd64: generate from host BTF.
+RUN if [ "$TARGETARCH" != "arm64" ]; then make generate; fi
+
+RUN CGO_ENABLED=0 GOARCH=${TARGETARCH} go build \
+        -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
+        -o /out/sensor \
+        ./cmd/sensor
+
+# ── Stage 2: runtime ───────────────────────────────────────────────────────────
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /out/sensor /usr/local/bin/sensor
+
+LABEL org.opencontainers.image.source="https://github.com/tracepod/tracepod"
+LABEL org.opencontainers.image.licenses="AGPL-3.0"
+LABEL org.opencontainers.image.description="Tracepod sensor — eBPF container file profiler"
+
+ENTRYPOINT ["/usr/local/bin/sensor"]

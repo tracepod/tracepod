@@ -1,0 +1,68 @@
+version: 2
+project_name: tracepod
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  # sensor: Linux-only (eBPF kprobe daemon)
+  - id: sensor
+    main: ./cmd/sensor
+    binary: sensor
+    goos: [linux]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
+
+  # harden: cross-platform (OCI image builder, no kernel dependency)
+  - id: harden
+    main: ./cmd/harden
+    binary: harden
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
+
+  # tracepod: cross-platform CLI (K8s port-forward, no kernel dependency)
+  - id: tracepod
+    main: ./cmd/tracepod
+    binary: tracepod
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
+
+archives:
+  - id: sensor-archive
+    ids: [sensor]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_sensor_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: harden-archive
+    ids: [harden]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_harden_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: tracepod-archive
+    ids: [tracepod]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_tracepod_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'Merge pull request'
+
+# Docker images are NOT built by goreleaser. They require native runners per
+# arch because bpf2go cannot cross-compile BPF objects (vmlinux.h is arch-specific).
+# See .github/workflows/release.yaml for the multi-arch Docker build + GHCR push.
