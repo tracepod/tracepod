@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tracepod/tracepod/internal/manifest"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 // version and commit are set at build time via -ldflags:

@@ -15,7 +15,7 @@ import (
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 
-	"github.com/tracepod/tracepod/internal/manifest"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 // --- buildConfigFile tests ---

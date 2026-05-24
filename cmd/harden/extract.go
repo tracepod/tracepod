@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tracepod/tracepod/internal/hardener"
+	"github.com/tracepod/tracepod/hardener"
 )
 
 // runExtract implements the "hardener extract" subcommand (M4).

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tracepod/tracepod/internal/manifest"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 // TestParseLdSoConf verifies basic parsing and include-directive following.

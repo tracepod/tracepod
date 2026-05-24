@@ -25,7 +25,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
-	"github.com/tracepod/tracepod/internal/manifest"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 // BuildOptions controls how the minimal OCI image is assembled and published.

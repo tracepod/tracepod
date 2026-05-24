@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tracepod/tracepod/internal/manifest"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 // makeTestManifest returns an empty manifest ready for safemode tests.

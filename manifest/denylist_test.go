@@ -3,7 +3,7 @@ package manifest_test
 import (
 	"testing"
 
-	"github.com/tracepod/tracepod/internal/manifest"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 func TestDefaultDenyList_blocksNoisePatterns(t *testing.T) {

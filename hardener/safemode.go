@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tracepod/tracepod/internal/manifest"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 // ApplyDirectoryInclusion walks each path in includePaths within stagingDir,
