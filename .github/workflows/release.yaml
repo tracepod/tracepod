@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write   # create GitHub Releases
+  packages: write   # push to GHCR
+
+jobs:
+  # Build and publish Go binary archives + GitHub Release via goreleaser.
+  goreleaser:
+    name: goreleaser (binaries + release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Install BPF toolchain and generate amd64 BPF objects
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 llvm-18 libbpf-dev
+          ARCH=$(dpkg --print-architecture)
+          curl -fsSL \
+            "https://github.com/libbpf/bpftool/releases/download/v7.7.0/bpftool-v7.7.0-${ARCH}.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin
+          sudo chmod +x /usr/local/bin/bpftool
+          make generate
+          # Restore committed arm64 BPF files so goreleaser sees a clean git state.
+          git checkout -- internal/probe/openat_arm64_bpfel.go \
+                          internal/probe/openat_arm64_bpfel.o
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Build and push the amd64 sensor image on a native x86 runner.
+  docker-sensor-amd64:
+    name: sensor image (amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push amd64 sensor image
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          COMMIT=${GITHUB_SHA::8}
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION=${VERSION} \
+            --build-arg COMMIT=${COMMIT} \
+            -t ghcr.io/tracepod/tracepod-sensor:${VERSION}-amd64 \
+            -t ghcr.io/tracepod/tracepod-sensor:latest-amd64 \
+            --push \
+            -f Dockerfile.sensor \
+            .
+
+  # Build and push the arm64 sensor image on a native arm64 runner.
+  docker-sensor-arm64:
+    name: sensor image (arm64)
+    runs-on: ubuntu-24.04-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push arm64 sensor image
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          COMMIT=${GITHUB_SHA::8}
+          docker build \
+            --platform linux/arm64 \
+            --build-arg VERSION=${VERSION} \
+            --build-arg COMMIT=${COMMIT} \
+            -t ghcr.io/tracepod/tracepod-sensor:${VERSION}-arm64 \
+            -t ghcr.io/tracepod/tracepod-sensor:latest-arm64 \
+            --push \
+            -f Dockerfile.sensor \
+            .
+
+  # Combine per-arch sensor images into a multi-arch manifest.
+  docker-sensor-manifest:
+    name: sensor manifest (multi-arch)
+    needs: [docker-sensor-amd64, docker-sensor-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create and push sensor manifests
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          docker manifest create ghcr.io/tracepod/tracepod-sensor:${VERSION} \
+            ghcr.io/tracepod/tracepod-sensor:${VERSION}-amd64 \
+            ghcr.io/tracepod/tracepod-sensor:${VERSION}-arm64
+          docker manifest push ghcr.io/tracepod/tracepod-sensor:${VERSION}
+          docker manifest create ghcr.io/tracepod/tracepod-sensor:latest \
+            ghcr.io/tracepod/tracepod-sensor:latest-amd64 \
+            ghcr.io/tracepod/tracepod-sensor:latest-arm64
+          docker manifest push ghcr.io/tracepod/tracepod-sensor:latest

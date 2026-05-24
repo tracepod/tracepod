@@ -1,0 +1,11 @@
+# Compiled binaries
+bin/
+
+# vmlinux.h is generated from the running kernel's BTF — not portable.
+# The bpf2go-generated openat_*bpf*.{go,o} files ARE committed: they are
+# compiled BPF bytecode for each arch and must be present for 'go build'.
+# Regenerate with 'make generate' on a native Linux machine for the target arch.
+internal/probe/vmlinux.h
+
+# macOS
+.DS_Store

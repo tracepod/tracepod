@@ -1,0 +1,78 @@
+vmType: "qemu"
+arch: "aarch64"
+memory: "8GiB"
+cpus: 4
+
+images:
+  # Pinned release with digest — preferred (reproducible, verified).
+  - location: "https://cloud-images.ubuntu.com/releases/noble/release-20260225/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+    digest: "sha256:99e1d482b958e6bfd0183a4c48ce6dc334e09a3e29a4560f6f5ff85593d09d1d"
+  # Fallback to latest if the pinned release is no longer available.
+  # Run `limactl prune` to clear the cache if you hit a stale download.
+  - location: "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+
+mounts:
+  - location: "~"
+    writable: true
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux
+
+      apt-get update -y
+
+      DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        clang-18 llvm-18 \
+        libbpf-dev \
+        linux-headers-$(uname -r) \
+        linux-tools-common \
+        linux-tools-$(uname -r) \
+        make git curl build-essential
+
+      # Make clang/llvm-strip available without the -18 suffix
+      update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
+      update-alternatives --install /usr/bin/llvm-strip llvm-strip /usr/bin/llvm-strip-18 100
+
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -eux
+
+      GO_VERSION="1.26.0"
+      curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz" \
+        | sudo tar -C /usr/local -xz
+
+      # Persist PATH for both interactive and non-interactive shells
+      for rc in ~/.bashrc ~/.profile; do
+        grep -q '/usr/local/go/bin' "$rc" 2>/dev/null || \
+          echo 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' >> "$rc"
+      done
+
+      export PATH=$PATH:/usr/local/go/bin
+      go install github.com/cilium/ebpf/cmd/bpf2go@latest
+
+probes:
+  - description: "kernel is 6.8.x"
+    script: |
+      #!/bin/bash
+      uname -r | grep -qE '^6\.8'
+    hint: "Unexpected kernel version — check the Ubuntu 24.04 image"
+  - description: "clang 18+ present"
+    script: |
+      #!/bin/bash
+      clang --version 2>&1 | grep -qE 'clang version 1[89]'
+    hint: "clang-18 install failed"
+  - description: "Go 1.26 present"
+    script: |
+      #!/bin/bash
+      /usr/local/go/bin/go version 2>&1 | grep -q 'go1\.26'
+    hint: "Go install failed — check GO_VERSION and go.dev/dl for latest 1.26.x"
+  - description: "bpftool runs"
+    script: |
+      #!/bin/bash
+      sudo bpftool prog list >/dev/null 2>&1
+    hint: "bpftool or linux-headers-$(uname -r) missing"
