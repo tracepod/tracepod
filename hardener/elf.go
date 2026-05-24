@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tracepod/tracepod/internal/manifest"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 // ResolveELFDependencies walks every file currently in m that lives under

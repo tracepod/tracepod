@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tracepod/tracepod/internal/manifest"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 // TestExtractFromImage_NginxAlpine pulls nginx:1.25-alpine (linux/amd64) and

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tracepod/tracepod/internal/manifest"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 func TestAggregator_RecordFile_deduplicates(t *testing.T) {

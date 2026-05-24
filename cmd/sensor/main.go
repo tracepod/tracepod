@@ -36,7 +36,7 @@ import (
 	"time"
 
 	"github.com/tracepod/tracepod/internal/container"
-	"github.com/tracepod/tracepod/internal/manifest"
+	"github.com/tracepod/tracepod/manifest"
 	"github.com/tracepod/tracepod/internal/probe"
 	"github.com/tracepod/tracepod/internal/ringbuf"
 	"github.com/tracepod/tracepod/internal/sensor"

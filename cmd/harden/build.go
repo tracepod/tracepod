@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tracepod/tracepod/internal/hardener"
-	"github.com/tracepod/tracepod/internal/manifest"
+	"github.com/tracepod/tracepod/hardener"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 // multiFlag is a repeatable string flag (e.g. --include can be given multiple
