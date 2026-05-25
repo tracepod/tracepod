@@ -54,9 +54,9 @@ type openatSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type openatProgramSpecs struct {
-	KprobeExecve *ebpf.ProgramSpec `ebpf:"kprobe_execve"`
-	KprobeMmap   *ebpf.ProgramSpec `ebpf:"kprobe_mmap"`
-	KprobeOpenat *ebpf.ProgramSpec `ebpf:"kprobe_openat"`
+	FentryVfsOpen *ebpf.ProgramSpec `ebpf:"fentry_vfs_open"`
+	KprobeExecve  *ebpf.ProgramSpec `ebpf:"kprobe_execve"`
+	KprobeMmap    *ebpf.ProgramSpec `ebpf:"kprobe_mmap"`
 }
 
 // openatMapSpecs contains maps before they are loaded into the kernel.
@@ -114,16 +114,16 @@ type openatVariables struct {
 //
 // It can be passed to loadOpenatObjects or ebpf.CollectionSpec.LoadAndAssign.
 type openatPrograms struct {
-	KprobeExecve *ebpf.Program `ebpf:"kprobe_execve"`
-	KprobeMmap   *ebpf.Program `ebpf:"kprobe_mmap"`
-	KprobeOpenat *ebpf.Program `ebpf:"kprobe_openat"`
+	FentryVfsOpen *ebpf.Program `ebpf:"fentry_vfs_open"`
+	KprobeExecve  *ebpf.Program `ebpf:"kprobe_execve"`
+	KprobeMmap    *ebpf.Program `ebpf:"kprobe_mmap"`
 }
 
 func (p *openatPrograms) Close() error {
 	return _OpenatClose(
+		p.FentryVfsOpen,
 		p.KprobeExecve,
 		p.KprobeMmap,
-		p.KprobeOpenat,
 	)
 }
 
