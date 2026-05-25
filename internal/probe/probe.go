@@ -24,8 +24,8 @@ type Probe struct {
 	rd     *ringbuf.Reader
 }
 
-// Open loads the BPF program, attaches fentry/vfs_open and two kprobes
-// (security_bprm_check, security_mmap_file), and returns a ready Probe.
+// Open loads the BPF program, attaches three kprobes (do_sys_openat2,
+// security_bprm_check, security_mmap_file), and returns a ready Probe.
 // The caller must call Close when done.
 func Open() (*Probe, error) {
 	if err := rlimit.RemoveMemlock(); err != nil {
@@ -45,24 +45,14 @@ func Open() (*Probe, error) {
 		objs.Close()
 	}
 
-	// fentry/vfs_open — fires after full path resolution; uses bpf_d_path()
-	// to capture the absolute path as the container sees it.
-	fentryLnk, err := link.AttachTracing(link.TracingOptions{
-		Program: objs.FentryVfsOpen,
-	})
-	if err != nil {
-		cleanup()
-		return nil, fmt.Errorf("attach fentry/vfs_open: %w", err)
-	}
-	links = append(links, fentryLnk)
-
-	// kprobes for execve and mmap — these remain kprobes because their hook
-	// points (security_bprm_check, security_mmap_file) already carry absolute
-	// paths and do not need bpf_d_path().
+	// Three kprobes: openat (raw path capture + userspace CWD resolution for
+	// relative paths), execve (absolute binary path), mmap PROT_EXEC (basename
+	// correlated against openat-recorded full paths).
 	for _, a := range []struct {
 		symbol string
 		prog   *ebpf.Program
 	}{
+		{"do_sys_openat2", objs.KprobeOpenat},
 		{"security_bprm_check", objs.KprobeExecve},
 		{"security_mmap_file", objs.KprobeMmap},
 	} {

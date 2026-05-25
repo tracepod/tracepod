@@ -56,8 +56,9 @@ type Plugin struct {
 	nri     stub.Stub
 
 	// onStart is called after cgroup ID is resolved and AllowCgroup succeeds.
-	// containerID is the NRI container ID; cgroupID is the kernel cgroup inode.
-	onStart func(containerID string, cgroupID uint64)
+	// containerID is the NRI container ID; cgroupID is the kernel cgroup inode;
+	// cgroupFSPath is the absolute path to the cgroup directory under /sys/fs/cgroup.
+	onStart func(containerID string, cgroupID uint64, cgroupFSPath string)
 
 	// onStop is called after DenyCgroup. containerID and cgroupID match those
 	// provided to the corresponding onStart call. pod carries the Kubernetes
@@ -74,7 +75,7 @@ type Plugin struct {
 // onStart is called after a container's cgroup ID is resolved; onStop is called
 // when a container stops with pod metadata from the NRI PodSandbox. Either
 // callback may be nil.
-func NewPlugin(allower CgroupAllower, onStart func(containerID string, cgroupID uint64), onStop func(containerID string, cgroupID uint64, pod PodMeta)) *Plugin {
+func NewPlugin(allower CgroupAllower, onStart func(containerID string, cgroupID uint64, cgroupFSPath string), onStop func(containerID string, cgroupID uint64, pod PodMeta)) *Plugin {
 	return &Plugin{
 		allower: allower,
 		onStart: onStart,
@@ -174,7 +175,7 @@ func (p *Plugin) StartContainer(
 	}
 
 	if p.onStart != nil {
-		p.onStart(ctr.GetId(), id)
+		p.onStart(ctr.GetId(), id, cgPath)
 	}
 	return nil
 }
