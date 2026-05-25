@@ -24,8 +24,8 @@ type Probe struct {
 	rd     *ringbuf.Reader
 }
 
-// Open loads the BPF program, attaches kprobes to do_sys_openat2,
-// security_bprm_check, and mmap_region, and returns a ready Probe.
+// Open loads the BPF program, attaches fentry/vfs_open and two kprobes
+// (security_bprm_check, security_mmap_file), and returns a ready Probe.
 // The caller must call Close when done.
 func Open() (*Probe, error) {
 	if err := rlimit.RemoveMemlock(); err != nil {
@@ -37,40 +37,41 @@ func Open() (*Probe, error) {
 		return nil, fmt.Errorf("load BPF objects: %w", err)
 	}
 
-	// Attach all three kprobes. On failure, clean up everything attached so far.
-	type kprobeSpec struct {
-		symbol string
-		prog   interface{ Close() error }
-		lnk    *link.Link
-	}
-
 	var links []link.Link
-	attach := func(symbol string, prog *ebpf.Program) error {
-		lnk, err := link.Kprobe(symbol, prog, nil)
-		if err != nil {
-			return fmt.Errorf("attach kprobe/%s: %w", symbol, err)
+	cleanup := func() {
+		for _, l := range links {
+			l.Close()
 		}
-		links = append(links, lnk)
-		return nil
+		objs.Close()
 	}
 
-	attachments := []struct {
+	// fentry/vfs_open — fires after full path resolution; uses bpf_d_path()
+	// to capture the absolute path as the container sees it.
+	fentryLnk, err := link.AttachTracing(link.TracingOptions{
+		Program: objs.FentryVfsOpen,
+	})
+	if err != nil {
+		cleanup()
+		return nil, fmt.Errorf("attach fentry/vfs_open: %w", err)
+	}
+	links = append(links, fentryLnk)
+
+	// kprobes for execve and mmap — these remain kprobes because their hook
+	// points (security_bprm_check, security_mmap_file) already carry absolute
+	// paths and do not need bpf_d_path().
+	for _, a := range []struct {
 		symbol string
 		prog   *ebpf.Program
 	}{
-		{"do_sys_openat2", objs.KprobeOpenat},
 		{"security_bprm_check", objs.KprobeExecve},
 		{"security_mmap_file", objs.KprobeMmap},
-	}
-
-	for _, a := range attachments {
-		if err := attach(a.symbol, a.prog); err != nil {
-			for _, l := range links {
-				l.Close()
-			}
-			objs.Close()
-			return nil, err
+	} {
+		lnk, err := link.Kprobe(a.symbol, a.prog, nil)
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("attach kprobe/%s: %w", a.symbol, err)
 		}
+		links = append(links, lnk)
 	}
 
 	rd, err := ringbuf.NewReader(objs.Events)

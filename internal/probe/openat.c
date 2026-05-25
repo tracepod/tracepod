@@ -43,30 +43,48 @@ struct {
 	__uint(max_entries, 1024);
 } allowed_cgroups SEC(".maps");
 
-SEC("kprobe/do_sys_openat2")
-int BPF_KPROBE(kprobe_openat, int dfd, const char *filename,
-               struct open_how *how)
+/* fentry/vfs_open fires after the kernel has fully resolved the open path
+ * (CWD expansion, all symlinks).  bpf_d_path() is available in fentry
+ * context and returns the path relative to the calling process's mount
+ * namespace root — i.e., as the container sees it (/usr/local/bin/python3,
+ * not the host overlayfs path).
+ *
+ * This replaces kprobe/do_sys_openat2, which captured the raw user-space
+ * string and silently dropped openat(AT_FDCWD, "relative/path") calls,
+ * causing startup scripts and main entry points (app.rb, app.py, index.js)
+ * to be missing from profiles of script-language workloads. */
+SEC("fentry/vfs_open")
+int BPF_PROG(fentry_vfs_open, const struct path *path, struct file *file)
 {
-	struct event *e;
-
-	e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-	if (!e)
-		return 0;
-
-	/* Filter: only emit events for cgroups the userspace plugin has allowed. */
+	/* Filter early: only emit events for cgroups the userspace plugin has
+	 * allowed.  Kernel threads and host processes are in the root cgroup
+	 * and will not be in allowed_cgroups. */
 	__u64 cgroup_id = bpf_get_current_cgroup_id();
 	__u8 *allowed = bpf_map_lookup_elem(&allowed_cgroups, &cgroup_id);
-	if (!allowed) {
-		bpf_ringbuf_discard(e, 0);
+	if (!allowed)
 		return 0;
-	}
+
+	struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+	if (!e)
+		return 0;
 
 	e->type = EVENT_OPENAT;
 	e->pid = bpf_get_current_pid_tgid() >> 32;
 	e->cgroup_id = cgroup_id;
-	e->flags_or_prot = BPF_CORE_READ_USER(how, flags);
+	/* f_flags is populated by build_open_flags() before vfs_open is called.
+	 * The access mode bits (O_RDONLY/O_WRONLY/O_RDWR) and O_APPEND are the
+	 * same values as the user-space open(2) flags. */
+	e->flags_or_prot = BPF_CORE_READ(file, f_flags);
 	bpf_get_current_comm(&e->comm, sizeof(e->comm));
-	bpf_probe_read_user_str(e->filename, sizeof(e->filename), filename);
+
+	/* bpf_d_path() resolves the path to an absolute string in the calling
+	 * process's mount namespace.  Discard if resolution fails (e.g. the
+	 * dentry has no associated path in the current namespace). */
+	long n = bpf_d_path((struct path *)path, e->filename, sizeof(e->filename));
+	if (n <= 0) {
+		bpf_ringbuf_discard(e, 0);
+		return 0;
+	}
 	e->interp[0] = 0;
 
 	bpf_ringbuf_submit(e, 0);

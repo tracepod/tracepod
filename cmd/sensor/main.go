@@ -1,7 +1,8 @@
 //go:build linux
 
-// Command sensor attaches a BPF kprobe to do_sys_openat2 and streams
-// container file-open events, aggregating them into per-container file manifests.
+// Command sensor attaches a BPF fentry probe to vfs_open (plus kprobes on
+// security_bprm_check and security_mmap_file) and streams container file-open
+// events, aggregating them into per-container file manifests.
 //
 // On StopContainer (via NRI hook), a JSON manifest is written to:
 //
@@ -302,9 +303,9 @@ func (r *cgroupRouter) handleMmap(e ringbuf.Event) {
 // cleanPath validates and normalises a kernel-supplied path. Returns "" if the
 // path should be discarded (relative, root, or denylist match).
 func (r *cgroupRouter) cleanPath(path string) string {
-	// Discard relative and empty paths. do_sys_openat2 takes (dfd, filename):
-	// when dfd is not AT_FDCWD the filename is relative to that fd's directory.
-	// mmap_region uses d_name which is the filename component only for some paths.
+	// fentry/vfs_open events always carry absolute paths from bpf_d_path().
+	// The relative-path guard below is retained for the mmap probe (which
+	// still supplies basename-only strings) and as a safety net.
 	if len(path) == 0 || path[0] != '/' {
 		return ""
 	}
