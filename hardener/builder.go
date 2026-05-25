@@ -499,9 +499,62 @@ func buildLayer(m *manifest.Manifest, stagingDir string) (io.ReadCloser, error) 
 	return pr, nil
 }
 
+// expandSymlinkTargets adds the resolved absolute target of every symlink in
+// m.Files to m.Files when the target exists in stagingDir but is not already
+// in the manifest.  Relative targets are resolved against the symlink's parent
+// directory.  Broken symlinks (target absent from stagingDir) are silently
+// skipped.  The loop repeats until no new entries are added so that symlink
+// chains (libfoo.so → libfoo.so.1 → libfoo.so.1.2.3) are fully expanded.
+//
+// This prevents dangling symlinks in the output OCI layer when the sensor only
+// observed the symlink name (e.g. python, libz.so.1) and not its target.
+func expandSymlinkTargets(m *manifest.Manifest, stagingDir string) {
+	now := time.Now().UTC()
+	for {
+		added := 0
+		for path := range m.Files {
+			src := filepath.Join(stagingDir, path)
+			info, err := os.Lstat(src)
+			if err != nil || info.Mode()&os.ModeSymlink == 0 {
+				continue
+			}
+			target, err := os.Readlink(src)
+			if err != nil {
+				continue
+			}
+			absTarget := target
+			if !filepath.IsAbs(target) {
+				absTarget = filepath.Join(filepath.Dir(path), target)
+			}
+			absTarget = filepath.Clean(absTarget)
+			if _, ok := m.Files[absTarget]; ok {
+				continue
+			}
+			if _, err := os.Lstat(filepath.Join(stagingDir, absTarget)); err != nil {
+				continue // target absent from staging dir — broken symlink, skip
+			}
+			m.Files[absTarget] = manifest.FileEntry{
+				Source:          manifest.SourceManual,
+				FirstSeen:       now,
+				LastSeen:        now,
+				IncludedBecause: "symlink-target",
+			}
+			added++
+		}
+		if added == 0 {
+			break
+		}
+	}
+}
+
 // writeTarEntries writes manifest entries into tw in sorted path order.
 // Parent directories are synthesised before each entry. mtime is zeroed.
 func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) error {
+	// Expand symlink targets before building the sorted path list so that
+	// symlinks pointing to targets absent from the manifest (e.g. python→python3,
+	// libz.so.1→libz.so.1.3.1) produce a non-dangling layer.
+	expandSymlinkTargets(m, stagingDir)
+
 	paths := make([]string, 0, len(m.Files))
 	for p := range m.Files {
 		paths = append(paths, p)
