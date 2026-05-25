@@ -8,9 +8,9 @@ Tracepod has three components that form a pipeline:
 ┌──────────────────────────────────────────────────────────────┐
 │  Kubernetes node                                              │
 │                                                              │
-│  ┌──────────────┐   kprobe on      ┌──────────────────────┐ │
-│  │  Container   │──── openat() ───►│   eBPF sensor        │ │
-│  │  (nginx etc) │                  │   (DaemonSet pod)    │ │
+│  ┌──────────────┐  eBPF kprobes    ┌──────────────────────┐ │
+│  │  Container   │─(openat/execve/─►│   eBPF sensor        │ │
+│  │  (nginx etc) │   mmap)          │   (DaemonSet pod)    │ │
 │  └──────────────┘                  └──────────┬───────────┘ │
 │                                               │              │
 │                                      file manifest (JSON)    │
@@ -29,13 +29,39 @@ Tracepod has three components that form a pipeline:
 
 ## eBPF sensor
 
-The sensor attaches a kprobe to the `openat()` syscall using [cilium/ebpf](https://github.com/cilium/ebpf)
+The sensor attaches three kprobes using [cilium/ebpf](https://github.com/cilium/ebpf)
 with CO-RE (Compile Once, Run Everywhere) BPF objects. Events flow through a ring buffer
 to the userspace consumer.
 
-Each event is filtered by cgroup namespace inode — only file opens from the target container
+Each event is filtered by cgroup namespace inode — only events from the target container
 reach userspace. The sensor uses the containerd NRI (`StopContainer` hook) to learn when a
 container stops and submit the complete manifest.
+
+The three kprobes are:
+
+- **`kprobe/do_sys_openat2`** — fires on every file open. The raw user-space path string is
+  captured. Absolute paths are passed through directly; relative paths (e.g. `app.rb` opened
+  via `openat(AT_FDCWD, ...)`) are resolved to absolute paths in userspace via CWD resolution
+  (see below).
+- **`kprobe/security_bprm_check`** — fires after `prepare_binprm()` has fully populated
+  `linux_binprm`. Captures both the binary path and the shebang interpreter path (e.g.
+  `/usr/bin/python3` for a `#!/usr/bin/python3` script). For native ELF binaries, both
+  fields are identical.
+- **`kprobe/security_mmap_file`** — fires on every file-backed `mmap(2)` with `PROT_EXEC`.
+  Captures the basename only (e.g. `libc.so.6`) because `bpf_d_path` is unavailable in
+  kprobe context. The userspace handler correlates the basename against full paths already
+  recorded by the openat probe — the dynamic linker always opens a file before mapping it.
+
+### CWD-relative path resolution
+
+`bpf_get_current_pid_tgid()` returns PIDs in the kernel's outermost PID namespace. In
+production Kubernetes the sensor's `/proc` uses that same namespace, so resolving
+`/proc/<bpf_pid>/cwd` works directly.
+
+In nested environments (e.g. kind-in-Lima VM), the sensor's `/proc` shows kind-node PIDs
+while BPF reports Lima VM PIDs. When the direct readlink fails, the fallback reads
+`<cgroupFSPath>/cgroup.procs` to obtain a locally-visible PID, then reads its `/proc` cwd
+entry. The cgroupfs path is supplied by the NRI `onStart` callback.
 
 ## Manifest
 
@@ -71,7 +97,7 @@ This distinction is what makes confidence scoring and audit trails possible.
 
 ## Hardener
 
-The hardener (`internal/hardener/builder.go`) takes a manifest and a source OCI image and
+The hardener (`hardener/builder.go`) takes a manifest and a source OCI image and
 produces a new minimal image:
 
 1. **Pull** the source image via `google/go-containerregistry`
@@ -84,7 +110,7 @@ produces a new minimal image:
 
 ## ELF dependency resolver
 
-The ELF resolver (`internal/hardener/elf.go`) is the #1 correctness risk in the pipeline.
+The ELF resolver (`hardener/elf.go`) is the #1 correctness risk in the pipeline.
 It must handle `RPATH`, `RUNPATH`, `LD_LIBRARY_PATH`, `/etc/ld.so.conf.d/` includes, and
 `dlopen()` patterns. Missing a dependency causes the hardened image to crash at runtime.
 
@@ -97,4 +123,4 @@ Each manifest gets a confidence score (0–100) based on:
 - Presence of cold-start paths
 - Number of distinct observation events
 
-See `internal/manifest/confidence.go` for the scoring model.
+See `manifest/confidence.go` for the scoring model.
