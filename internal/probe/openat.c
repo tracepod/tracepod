@@ -43,18 +43,24 @@ struct {
 	__uint(max_entries, 1024);
 } allowed_cgroups SEC(".maps");
 
-/* fentry/vfs_open fires after the kernel has fully resolved the open path
- * (CWD expansion, all symlinks).  bpf_d_path() is available in fentry
- * context and returns the path relative to the calling process's mount
- * namespace root — i.e., as the container sees it (/usr/local/bin/python3,
- * not the host overlayfs path).
+/* kprobe/do_sys_openat2 fires at the kernel's unified open handler, called
+ * for both openat(2) and openat2(2). The raw user-space filename string is
+ * captured as provided by the caller — absolute paths ("/usr/lib/libc.so")
+ * are emitted directly; relative paths ("app.rb", "config.yml") are emitted
+ * as-is and resolved in the userspace router via /proc/<pid>/cwd.
  *
- * This replaces kprobe/do_sys_openat2, which captured the raw user-space
- * string and silently dropped openat(AT_FDCWD, "relative/path") calls,
- * causing startup scripts and main entry points (app.rb, app.py, index.js)
- * to be missing from profiles of script-language workloads. */
-SEC("fentry/vfs_open")
-int BPF_PROG(fentry_vfs_open, const struct path *path, struct file *file)
+ * We do not use bpf_d_path here because it cannot resolve paths for files in
+ * overlayfs containers: file->f_path.dentry points to the underlying layer
+ * dentry which is not visible in the calling process's mount namespace, so
+ * d_path() consistently returns errors in containerised overlay2 environments.
+ *
+ * The userspace resolver reads /proc/<pid>/cwd to obtain the container
+ * process's CWD and reconstructs the absolute path there.  Because the sensor
+ * processes ring-buffer events while the emitting process is still in the
+ * syscall, the /proc entry is guaranteed to be valid at resolution time. */
+SEC("kprobe/do_sys_openat2")
+int BPF_KPROBE(kprobe_openat, int dfd, const char *filename,
+               struct open_how *how)
 {
 	/* Filter early: only emit events for cgroups the userspace plugin has
 	 * allowed.  Kernel threads and host processes are in the root cgroup
@@ -71,16 +77,13 @@ int BPF_PROG(fentry_vfs_open, const struct path *path, struct file *file)
 	e->type = EVENT_OPENAT;
 	e->pid = bpf_get_current_pid_tgid() >> 32;
 	e->cgroup_id = cgroup_id;
-	/* f_flags is populated by build_open_flags() before vfs_open is called.
-	 * The access mode bits (O_RDONLY/O_WRONLY/O_RDWR) and O_APPEND are the
+	/* Read open flags from the kernel-space open_how struct.
+	 * The access mode bits (O_RDONLY/O_WRONLY/O_RDWR) and O_APPEND have the
 	 * same values as the user-space open(2) flags. */
-	e->flags_or_prot = BPF_CORE_READ(file, f_flags);
+	e->flags_or_prot = BPF_CORE_READ(how, flags);
 	bpf_get_current_comm(&e->comm, sizeof(e->comm));
 
-	/* bpf_d_path() resolves the path to an absolute string in the calling
-	 * process's mount namespace.  Discard if resolution fails (e.g. the
-	 * dentry has no associated path in the current namespace). */
-	long n = bpf_d_path((struct path *)path, e->filename, sizeof(e->filename));
+	long n = bpf_probe_read_user_str(e->filename, sizeof(e->filename), filename);
 	if (n <= 0) {
 		bpf_ringbuf_discard(e, 0);
 		return 0;

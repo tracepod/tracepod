@@ -1,7 +1,7 @@
 //go:build linux
 
-// Command sensor attaches a BPF fentry probe to vfs_open (plus kprobes on
-// security_bprm_check and security_mmap_file) and streams container file-open
+// Command sensor attaches BPF kprobes to do_sys_openat2, security_bprm_check,
+// and security_mmap_file and streams container file-open
 // events, aggregating them into per-container file manifests.
 //
 // On StopContainer (via NRI hook), a JSON manifest is written to:
@@ -24,6 +24,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -32,6 +33,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -123,10 +125,11 @@ func main() {
 // cgroupRouter maps live cgroup IDs to their per-container aggregators and
 // routes ring buffer events to the correct aggregator.
 type cgroupRouter struct {
-	mu          sync.RWMutex
-	aggs        map[uint64]*manifest.Aggregator // cgroupID → aggregator
-	ctrToCgroup map[string]uint64               // containerID → cgroupID (for onStop lookup)
-	denyList    *manifest.DenyList
+	mu           sync.RWMutex
+	aggs         map[uint64]*manifest.Aggregator // cgroupID → aggregator
+	ctrToCgroup  map[string]uint64               // containerID → cgroupID (for onStop lookup)
+	cgroupFSPath map[uint64]string               // cgroupID → cgroup filesystem path
+	denyList     *manifest.DenyList
 	profileDir    string
 	controllerURL string
 	nodeName      string
@@ -137,6 +140,7 @@ func newRouter(profileDir, controllerURL, nodeName string, resolver sensor.Workl
 	return &cgroupRouter{
 		aggs:          make(map[uint64]*manifest.Aggregator),
 		ctrToCgroup:   make(map[string]uint64),
+		cgroupFSPath:  make(map[uint64]string),
 		denyList:      manifest.DefaultDenyList(),
 		profileDir:    profileDir,
 		controllerURL: controllerURL,
@@ -147,11 +151,12 @@ func newRouter(profileDir, controllerURL, nodeName string, resolver sensor.Workl
 
 // onContainerStart is called by the NRI plugin when a container's cgroup ID
 // is resolved. A new Aggregator is created for the container.
-func (r *cgroupRouter) onContainerStart(containerID string, cgroupID uint64) {
+func (r *cgroupRouter) onContainerStart(containerID string, cgroupID uint64, cgroupFSPath string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.aggs[cgroupID] = manifest.NewAggregator(containerID, "")
 	r.ctrToCgroup[containerID] = cgroupID
+	r.cgroupFSPath[cgroupID] = cgroupFSPath
 	fmt.Fprintf(os.Stderr, "sensor: aggregator created for container=%s cgroup=%d\n", containerID, cgroupID)
 }
 
@@ -164,6 +169,7 @@ func (r *cgroupRouter) onContainerStop(containerID string, cgroupID uint64, pod 
 	agg, ok := r.aggs[cgroupID]
 	delete(r.aggs, cgroupID)
 	delete(r.ctrToCgroup, containerID)
+	delete(r.cgroupFSPath, cgroupID)
 	r.mu.Unlock()
 
 	if !ok {
@@ -239,8 +245,29 @@ func (r *cgroupRouter) handle(e ringbuf.Event) {
 
 // handleOpenat processes an openat event: filters noise and records the file
 // access with the appropriate read/write modes.
+//
+// The kprobe captures the raw user-space path string. Absolute paths are
+// passed directly to cleanPath. Relative paths (e.g. "app.rb" opened via
+// openat(AT_FDCWD, "app.rb")) are resolved against the process's CWD by
+// reading /proc/<pid>/cwd — the process is still inside the syscall when
+// the ring buffer event is consumed, so the /proc entry is always valid.
 func (r *cgroupRouter) handleOpenat(e ringbuf.Event) {
-	path := r.cleanPath(e.Path())
+	raw := e.Path()
+	if raw == "" {
+		return
+	}
+
+	var path string
+	if raw[0] == '/' {
+		path = r.cleanPath(raw)
+	} else {
+		r.mu.RLock()
+		cgFSPath := r.cgroupFSPath[e.CgroupID]
+		r.mu.RUnlock()
+		if cwd := cwdForEvent(e.Pid, cgFSPath); cwd != "" {
+			path = r.cleanPath(filepath.Join(cwd, raw))
+		}
+	}
 	if path == "" {
 		return
 	}
@@ -300,12 +327,54 @@ func (r *cgroupRouter) handleMmap(e ringbuf.Event) {
 	agg.MergeAccessModeByBasename(basename, manifest.AccessMmap, time.Now())
 }
 
+// cwdForEvent resolves the CWD for the process that emitted the given event.
+//
+// bpf_get_current_pid_tgid() returns PIDs in the kernel's initial (outermost)
+// PID namespace. In production Kubernetes (hostPID:true, no nesting), the
+// sensor's /proc uses that same namespace and the direct readlink works.
+//
+// In nested environments (e.g. kind-in-Lima VM), the sensor's /proc shows
+// kind-node-level PIDs while BPF reports Lima VM PIDs. The fallback reads
+// cgroup.procs from the container's cgroup directory to obtain a local PID,
+// then reads /proc/<local_pid>/cwd. cgroupFSPath must be the absolute path to
+// the container's cgroup directory under /sys/fs/cgroup; pass "" to skip.
+func cwdForEvent(bpfPid uint32, cgroupFSPath string) string {
+	// Production fast path: BPF PID is visible in sensor's /proc.
+	if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", bpfPid)); err == nil {
+		return cwd
+	}
+	// Nested-environment fallback: find a local PID from cgroup.procs.
+	if cgroupFSPath == "" {
+		return ""
+	}
+	procsFile := cgroupFSPath + "/cgroup.procs"
+	data, err := os.ReadFile(procsFile)
+	if err != nil {
+		return ""
+	}
+	for _, line := range bytes.Split(bytes.TrimSpace(data), []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		localPid, err := strconv.ParseUint(string(line), 10, 32)
+		if err != nil {
+			continue
+		}
+		if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", localPid)); err == nil {
+			return cwd
+		}
+	}
+	return ""
+}
+
 // cleanPath validates and normalises a kernel-supplied path. Returns "" if the
 // path should be discarded (relative, root, or denylist match).
 func (r *cgroupRouter) cleanPath(path string) string {
-	// fentry/vfs_open events always carry absolute paths from bpf_d_path().
-	// The relative-path guard below is retained for the mmap probe (which
-	// still supplies basename-only strings) and as a safety net.
+	// kprobe/do_sys_openat2 events may carry relative paths; those are resolved
+	// in handleOpenat via /proc/<pid>/cwd before reaching cleanPath.
+	// The absolute-path guard here covers the mmap probe (basename-only) and
+	// acts as a safety net for any unexpected relative paths.
 	if len(path) == 0 || path[0] != '/' {
 		return ""
 	}
