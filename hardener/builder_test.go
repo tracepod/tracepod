@@ -566,6 +566,126 @@ func TestBuildLayer_SkipsENOTDIRPaths(t *testing.T) {
 	}
 }
 
+// TestBuildLayer_SymlinkTargetIncluded verifies that when a manifest contains
+// a symlink (e.g. python → python3) but not its target, buildLayer includes
+// the resolved target in the tar layer.  This is the root cause of the
+// python-hello sandbox failure: exec "python" failed because python3 was absent.
+func TestBuildLayer_SymlinkTargetIncluded(t *testing.T) {
+	dir := t.TempDir()
+	createFile(t, dir, "/usr/local/bin/python3")
+	createSymlink(t, dir, "/usr/local/bin/python", "python3")
+
+	m := &manifest.Manifest{
+		Files: map[string]manifest.FileEntry{
+			// Manifest only has the symlink; target is absent.
+			"/usr/local/bin/python": {Source: manifest.SourceDirect},
+		},
+	}
+
+	rc, err := buildLayer(m, dir)
+	if err != nil {
+		t.Fatalf("buildLayer returned error: %v", err)
+	}
+	defer rc.Close()
+
+	names := tarEntryNames(t, rc)
+	for _, name := range names {
+		if name == "usr/local/bin/python3" {
+			return // found — pass
+		}
+	}
+	t.Errorf("symlink target python3 not found in tar layer; entries: %v", names)
+}
+
+// TestBuildLayer_RelativeSymlinkTargetInSameDir verifies that a relative
+// sibling symlink (libz.so.1 → libz.so.1.3.1) causes the versioned file to
+// be included even when only the symlink appears in the manifest.  This is the
+// root cause of the ruby-hello sandbox failure: libz.so.1 pointed to a sibling
+// that was never added to the tar.
+func TestBuildLayer_RelativeSymlinkTargetInSameDir(t *testing.T) {
+	dir := t.TempDir()
+	createFile(t, dir, "/lib/aarch64-linux-gnu/libz.so.1.3.1")
+	createSymlink(t, dir, "/lib/aarch64-linux-gnu/libz.so.1", "libz.so.1.3.1")
+
+	m := &manifest.Manifest{
+		Files: map[string]manifest.FileEntry{
+			"/lib/aarch64-linux-gnu/libz.so.1": {Source: manifest.SourceDirect},
+		},
+	}
+
+	rc, err := buildLayer(m, dir)
+	if err != nil {
+		t.Fatalf("buildLayer returned error: %v", err)
+	}
+	defer rc.Close()
+
+	names := tarEntryNames(t, rc)
+	for _, name := range names {
+		if name == "lib/aarch64-linux-gnu/libz.so.1.3.1" {
+			return // found — pass
+		}
+	}
+	t.Errorf("symlink target libz.so.1.3.1 not in tar layer; entries: %v", names)
+}
+
+// TestBuildLayer_SymlinkChainIncluded verifies that a two-hop symlink chain
+// (libfoo.so → libfoo.so.1 → libfoo.so.1.2.3) causes all intermediate and
+// final targets to be included when only the first symlink is in the manifest.
+func TestBuildLayer_SymlinkChainIncluded(t *testing.T) {
+	dir := t.TempDir()
+	createFile(t, dir, "/lib/libfoo.so.1.2.3")
+	createSymlink(t, dir, "/lib/libfoo.so.1", "libfoo.so.1.2.3")
+	createSymlink(t, dir, "/lib/libfoo.so", "libfoo.so.1")
+
+	m := &manifest.Manifest{
+		Files: map[string]manifest.FileEntry{
+			// Only the outermost symlink is in the manifest.
+			"/lib/libfoo.so": {Source: manifest.SourceDirect},
+		},
+	}
+
+	rc, err := buildLayer(m, dir)
+	if err != nil {
+		t.Fatalf("buildLayer returned error: %v", err)
+	}
+	defer rc.Close()
+
+	names := tarEntryNames(t, rc)
+	wantAll := []string{"lib/libfoo.so.1", "lib/libfoo.so.1.2.3"}
+	for _, want := range wantAll {
+		found := false
+		for _, name := range names {
+			if name == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected %q in tar layer (symlink chain); entries: %v", want, names)
+		}
+	}
+}
+
+// TestBuildLayer_BrokenSymlinkSkipped verifies that a symlink whose target
+// is absent from the staging directory does not cause a fatal error.
+func TestBuildLayer_BrokenSymlinkSkipped(t *testing.T) {
+	dir := t.TempDir()
+	// Only the symlink exists; the target does not.
+	createSymlink(t, dir, "/usr/local/bin/python", "python3")
+
+	m := &manifest.Manifest{
+		Files: map[string]manifest.FileEntry{
+			"/usr/local/bin/python": {Source: manifest.SourceDirect},
+		},
+	}
+
+	rc, err := buildLayer(m, dir)
+	if err != nil {
+		t.Fatalf("buildLayer returned error on broken symlink: %v", err)
+	}
+	rc.Close()
+}
+
 // contains reports whether s contains sub.
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsHelper(s, sub))
