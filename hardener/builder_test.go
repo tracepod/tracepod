@@ -545,8 +545,8 @@ func TestBuildLayer_SkipsENOTDIRPaths(t *testing.T) {
 
 	m := &manifest.Manifest{
 		Files: map[string]manifest.FileEntry{
-			"/var/www/html/index.php":           {Source: manifest.SourceDirect},
-			"/var/www/html/healthz.php":         {Source: manifest.SourceDirect},
+			"/var/www/html/index.php":   {Source: manifest.SourceDirect},
+			"/var/www/html/healthz.php": {Source: manifest.SourceDirect},
 			// This path has healthz.php as a directory component — must be skipped.
 			"/var/www/html/healthz.php/.htaccess": {Source: manifest.SourceDirect},
 		},

@@ -13,12 +13,21 @@ linters:
       # Best-effort closes and cleanups. Tar/gzip writer Close failures can
       # mask data loss in principle, but in this codebase they're always
       # paired with a captured write error (e.g. via pw.CloseWithError(err)).
+      # errcheck matches against concrete receiver types — list each one used.
       exclude-functions:
         - (io.Closer).Close
         - (*os.File).Close
+        - (*os.File).Write
+        - (*archive/tar.Writer).Close
+        - (*compress/gzip.Writer).Close
+        - (*debug/elf.File).Close
         - (*bufio.Writer).Flush
+        - (*text/tabwriter.Writer).Flush
         - os.RemoveAll
         - os.Remove
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
   exclusions:
     # internal/probe and cmd/sensor depend on bpf2go-generated files that are
     # only committed for arm64; amd64 objects are produced by `make generate`
