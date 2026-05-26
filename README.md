@@ -103,6 +103,14 @@ CGO_ENABLED=0 go build ./cmd/harden/
 
 ### Kubernetes (recommended)
 
+> **Profiling scope:** Once installed, the sensor profiles **every** container
+> kubelet/containerd creates on the node — including `kube-system`. There is no
+> per-pod opt-in (no label, annotation, or namespace selector). You filter
+> downstream by mapping container IDs back to pods (see step 4 below). In
+> controller mode (`--controller-url`), pods without a Deployment/StatefulSet
+> owner are silently dropped before upload; in standalone mode (`--profile-dir`,
+> the default), every stopped container produces a manifest.
+
 ```bash
 # 1. Enable NRI in containerd on each node (see Prerequisites above)
 
