@@ -186,13 +186,13 @@ func (p *Plugin) StartContainer(
 // Two formats are handled generically:
 //
 //  1. OCI/cgroupfs format — path relative to the cgroup namespace root:
-//       "/kubepods/besteffort/podXXX/containerID"  (already absolute)
-//       "kubepods/besteffort/podXXX/containerID"   (relative, prefixed)
+//     "/kubepods/besteffort/podXXX/containerID"  (already absolute)
+//     "kubepods/besteffort/podXXX/containerID"   (relative, prefixed)
 //
 //  2. Systemd cgroup driver format — used when containerd's SystemdCgroup=true.
 //     Produced by kubeadm, kind (containerd ≥ v2.0), EKS AL2023, GKE COS, and
 //     any distro that configures the systemd cgroup driver:
-//       "kubelet-kubepods-besteffort-podXXX.slice:cri-containerd:containerID"
+//     "kubelet-kubepods-besteffort-podXXX.slice:cri-containerd:containerID"
 //     Converted by expanding the slice hierarchy into its filesystem form.
 func resolveCgroupPath(raw string) string {
 	// Systemd format: "A-B.slice:scope-prefix:scope-suffix"

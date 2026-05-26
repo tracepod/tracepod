@@ -36,9 +36,9 @@ var (
 )
 
 func main() {
-	kubeconfig   := flag.String("kubeconfig", defaultKubeconfig(), "path to kubeconfig file")
-	ctrlNS       := flag.String("controller-namespace", "tracepod", "namespace where the Tracepod controller is deployed")
-	showVersion  := flag.Bool("version", false, "print version and exit")
+	kubeconfig := flag.String("kubeconfig", defaultKubeconfig(), "path to kubeconfig file")
+	ctrlNS := flag.String("controller-namespace", "tracepod", "namespace where the Tracepod controller is deployed")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: tracepod [flags] <command>\n\n")
 		fmt.Fprintf(os.Stderr, "Connects to the Tracepod controller in your Kubernetes cluster via port-forward.\n")
