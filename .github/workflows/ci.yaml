@@ -38,10 +38,18 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-      - uses: golangci/golangci-lint-action@v8
-        with:
-          version: latest
-          args: --timeout 3m
+      # Install manually rather than using golangci-lint-action so we can pass an
+      # explicit package list and skip internal/probe + cmd/sensor — they depend
+      # on bpf2go-generated files that are only committed for arm64, and the
+      # action runs `golangci-lint run ./...` which typecheck-fails on amd64.
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
+      - name: Run golangci-lint
+        run: |
+          PKGS=$(go list ./... | grep -Ev 'internal/probe$|cmd/sensor$')
+          "$(go env GOPATH)/bin/golangci-lint" run --timeout 3m $PKGS
 
   helm-lint:
     name: helm lint
