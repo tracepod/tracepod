@@ -27,10 +27,10 @@ const (
 // program. The generated openat_bpfel.go / openat_bpfeb.go embed the compiled
 // bytecode; this struct is maintained manually to mirror the C layout.
 type Event struct {
-	Type        uint32   // EVENT_OPENAT / EVENT_EXECVE / EVENT_MMAP
+	Type        uint32 // EVENT_OPENAT / EVENT_EXECVE / EVENT_MMAP
 	Pid         uint32
 	CgroupID    uint64
-	FlagsOrProt uint64   // openat: open_how.flags; mmap: vm_flags; execve: 0
+	FlagsOrProt uint64 // openat: open_how.flags; mmap: vm_flags; execve: 0
 	Comm        [16]byte
 	Filename    [256]byte
 	Interp      [256]byte // execve: script interpreter path; else empty
