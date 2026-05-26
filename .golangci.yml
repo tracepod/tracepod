@@ -9,6 +9,12 @@ linters:
     - ineffassign
     - misspell
   exclusions:
+    # internal/probe and cmd/sensor depend on bpf2go-generated files that are
+    # only committed for arm64; amd64 objects are produced by `make generate`
+    # during release CI. The lint job has no BPF toolchain, so skip these paths.
+    paths:
+      - internal/probe
+      - cmd/sensor
     rules:
       # errcheck: allow unhandled errors on defer Close calls (common pattern)
       - linters: [errcheck]
