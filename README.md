@@ -77,6 +77,56 @@ harden build \
 docker load -i /tmp/hardened-nginx/oci-layout
 ```
 
+## Local end-to-end testing (Mac)
+
+Mac contributors can run the full sensor → harden → validate pipeline locally using
+the `k8s-dev` Lima VM, which provides Ubuntu 24.04 + Docker + kind — no Linux host required.
+
+### One-time setup
+
+```bash
+# Create and start the VM (downloads ~500 MB; takes a few minutes)
+limactl create --name k8s-dev infra/lima/k8s-dev.yaml
+limactl start k8s-dev
+```
+
+The VM provisions Docker CE, kind v0.27.0, kubectl, helm, and Go 1.26. It mounts your
+home directory writable, so the tracepod repo is immediately available inside.
+
+### Run the e2e suite
+
+```bash
+make e2e
+```
+
+This runs `hack/e2e/run-e2e.sh` inside the Lima VM. It will:
+1. Build the sensor Docker image (arm64, using committed BPF objects — no clang needed)
+2. Create a kind cluster with NRI enabled in containerd
+3. Deploy the sensor DaemonSet via Helm
+4. Deploy nginx, exercise it, then scale it to 0 (triggering a manifest flush)
+5. Run `harden build` to produce a FROM-scratch nginx image
+6. Validate with `nginx -t` inside the hardened container
+
+A successful run ends with:
+
+```
+══════════════════════════════════════
+  PASS: tracepod e2e test complete
+══════════════════════════════════════
+```
+
+### Flags
+
+```bash
+# Keep the kind cluster alive after the test (for kubectl debugging)
+limactl shell k8s-dev -- bash -c "cd ~/work/tracepod && bash hack/e2e/run-e2e.sh --keep-cluster"
+```
+
+### CI
+
+The same pipeline runs in GitHub Actions on every push to `main` via
+`.github/workflows/e2e.yaml` (ubuntu-latest, amd64, no Lima VM needed).
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)

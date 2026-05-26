@@ -1,0 +1,25 @@
+# Dockerfile.sensor.dev — lightweight sensor image for CI / local dev
+#
+# Uses a pre-built sensor binary instead of compiling inside Docker.
+# This sidesteps the /sys/kernel/btf/vmlinux mount issue that prevents
+# 'make generate' from running inside a standard Docker build context on amd64.
+#
+# Build flow (CI, amd64):
+#   1. Install clang-18 + bpftool on the runner
+#   2. make generate              (reads runner's /sys/kernel/btf/vmlinux)
+#   3. CGO_ENABLED=0 go build -o sensor ./cmd/sensor
+#   4. docker build -f Dockerfile.sensor.dev -t tracepod-sensor:e2e .
+#
+# For production/release images use Dockerfile.sensor (multi-stage, self-contained).
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY sensor /usr/local/bin/sensor
+
+LABEL org.opencontainers.image.source="https://github.com/tracepod/tracepod"
+LABEL org.opencontainers.image.licenses="AGPL-3.0"
+LABEL org.opencontainers.image.description="Tracepod sensor — eBPF container file profiler (dev build)"
+
+ENTRYPOINT ["/usr/local/bin/sensor"]

@@ -1,0 +1,22 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: tracepod-e2e
+
+# Enable NRI (Node Resource Interface) in containerd so the sensor's NRI plugin
+# receives container lifecycle events (CreateContainer, StartContainer, StopContainer).
+# Without this, the sensor cannot associate cgroup paths with containers and will
+# emit no profiles.
+containerdConfigPatches:
+  - |
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
+
+nodes:
+  - role: control-plane
+    # Expose the sensor's profile output directory to the host so that 'harden build'
+    # can read files.json without kubectl cp. The host directory is created by
+    # run-e2e.sh before kind create cluster.
+    extraMounts:
+      - hostPath: /tmp/tracepod-e2e-profiles
+        containerPath: /var/lib/tracepod/profiles

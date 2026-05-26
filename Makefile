@@ -36,3 +36,19 @@ test:
 
 clean:
 	rm -rf bin/
+
+## Build sensor Docker image for local development inside the k8s-dev Lima VM.
+## arm64 BPF objects are committed to git so no clang/bpftool needed.
+sensor-image:
+	docker build --platform linux/$(shell go env GOARCH) \
+	  -f Dockerfile.sensor -t tracepod-sensor:dev .
+
+## Run full e2e tests (sensor profiles nginx → harden → validate) inside the
+## k8s-dev Lima VM. Requires: limactl + 'limactl start k8s-dev' first.
+e2e:
+	limactl shell k8s-dev -- bash -c "cd $(shell pwd) && bash hack/e2e/run-e2e.sh"
+
+## Run e2e directly on the current Linux host (CI mode).
+## Requires: Docker, kind, kubectl, helm, go — and sensor binary pre-built.
+e2e-ci:
+	bash hack/e2e/run-e2e.sh
