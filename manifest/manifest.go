@@ -7,7 +7,7 @@ import "time"
 
 // ObservationSource describes how a file was included in the manifest.
 // Every FileEntry carries exactly one source. The source is the foundation of
-// confidence scoring in M6 and AppArmor file-rule generation in M9.
+// confidence scoring and AppArmor file-rule generation.
 type ObservationSource string
 
 const (
@@ -16,12 +16,12 @@ const (
 	SourceDirect ObservationSource = "direct"
 
 	// SourceInferredELF means the path was resolved as a shared library dependency
-	// of a direct ELF binary via readelf/ld.so.conf. Added by the ELF resolver in M4–5.
+	// of a direct ELF binary via readelf/ld.so.conf.
 	// High trust — necessary for dynamic linking, but depends on resolver correctness.
 	SourceInferredELF ObservationSource = "inferred-elf"
 
 	// SourceDirectoryInclusion means the file's parent directory had a direct hit
-	// and safe-mode expansion included all directory contents. Added in M6.
+	// and safe-mode expansion included all directory contents.
 	// Medium trust — conservative, may over-include.
 	SourceDirectoryInclusion ObservationSource = "directory-inclusion"
 
@@ -47,16 +47,16 @@ type AccessMode string
 const (
 	AccessRead    AccessMode = "r" // O_RDONLY or O_RDWR
 	AccessWrite   AccessMode = "w" // O_WRONLY or O_RDWR or O_APPEND
-	AccessExecute AccessMode = "x" // via execve (added when execve kprobe lands in M9)
+	AccessExecute AccessMode = "x" // via execve kprobe
 	AccessLink    AccessMode = "l" // hardlink / rename observed
-	AccessMmap    AccessMode = "m" // mmap with PROT_EXEC (future)
+	AccessMmap    AccessMode = "m" // mmap with PROT_EXEC
 )
 
 // FileEntry is a single file in the manifest. The map key in Manifest.Files
 // is the file's absolute path.
 type FileEntry struct {
 	Source      ObservationSource `json:"source"`
-	AccessModes []AccessMode      `json:"access_modes"` // observed open flags; used by image factory and M9 AppArmor generator
+	AccessModes []AccessMode      `json:"access_modes"` // observed open flags
 	FirstSeen   time.Time         `json:"first_seen"`
 	LastSeen    time.Time         `json:"last_seen"`
 	Count       uint64            `json:"count"` // 0 for inferred-elf and directory-inclusion entries
@@ -68,13 +68,6 @@ type FileEntry struct {
 
 // Manifest is the file observation record for one container profiling run.
 // Written to profiles/<container-id>/files.json by the sensor on StopContainer.
-//
-// Syscall and AppArmor profiles are separate files written in M9:
-//
-//	profiles/<container-id>/
-//	  files.json       — this type
-//	  syscalls.json    — M9, for Seccomp profile generation
-//	  apparmor.json    — M9, for AppArmor profile generation
 type Manifest struct {
 	SchemaVersion string               `json:"schema_version"` // always "1"
 	ContainerID   string               `json:"container_id"`

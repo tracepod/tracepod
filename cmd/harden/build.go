@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -18,7 +19,7 @@ type multiFlag []string
 func (f *multiFlag) String() string     { return strings.Join(*f, ", ") }
 func (f *multiFlag) Set(s string) error { *f = append(*f, s); return nil }
 
-// runBuild implements the "hardener build" subcommand (M5).
+// runBuild implements the "harden build" subcommand.
 // It assembles a FROM-scratch OCI image from the sensor manifest, writes it
 // as an OCI layout to --output, and optionally pushes to --push.
 func runBuild(args []string) int {
@@ -29,7 +30,7 @@ func runBuild(args []string) int {
 		outputDir          = fs.String("output", "", "Destination directory for the OCI layout (required)")
 		pushRef            = fs.String("push", "", "Push the image to this registry reference after building, e.g. 123.dkr.ecr.eu-west-1.amazonaws.com/app:hardened")
 		base               = fs.String("base", "scratch", "Base image (only 'scratch' is currently implemented)")
-		platform           = fs.String("platform", "linux/amd64", "Image platform, e.g. linux/amd64 or linux/arm64")
+		platform           = fs.String("platform", "linux/amd64", "Image platform, e.g. linux/amd64 or linux/arm64 — must match your deployment target")
 		username           = fs.String("username", "", "Registry username (overrides keychain when combined with --password)")
 		password           = fs.String("password", "", "Registry password (overrides keychain when combined with --username)")
 		insecure           = fs.Bool("insecure", false, "Skip TLS certificate verification")
@@ -46,6 +47,9 @@ func runBuild(args []string) int {
 	fs.Var(&mkdirs, "mkdir", "Create an empty directory in the hardened image even if absent from source (repeatable, e.g. --mkdir /var/cache/nginx/client_temp)")
 	fs.Var(&touches, "touch", "Create an empty 0-byte file in the hardened image if absent from source (repeatable, e.g. --touch /run/nginx.pid)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 1
 	}
 
@@ -55,9 +59,14 @@ func runBuild(args []string) int {
 		return 1
 	}
 
-	// --base is accepted for future compatibility. Only scratch is implemented.
+	if (*username == "") != (*password == "") {
+		fmt.Fprintln(os.Stderr, "error: --username and --password must both be set or both be empty")
+		return 1
+	}
+
 	if *base != "scratch" {
-		fmt.Fprintf(os.Stderr, "note: --base %s not yet implemented; using scratch\n", *base)
+		fmt.Fprintf(os.Stderr, "error: --base %q is not yet supported; only 'scratch' is implemented\n", *base)
+		return 1
 	}
 
 	m, err := loadManifest(*manifestPath)
@@ -121,6 +130,10 @@ func runBuild(args []string) int {
 	fmt.Printf("Confidence:  %s\n", formatConfidence(confidence, *verbose))
 	fmt.Printf("Layer:       %s (%s)\n", humanBytes(result.LayerSize), result.LayerDigest)
 	fmt.Printf("OCI layout:  %s\n", *outputDir)
+	if !result.Pushed {
+		fmt.Printf("Next:        skopeo copy oci:%s docker-daemon:myapp:hardened\n", *outputDir)
+		fmt.Printf("             # or push directly: harden build ... --push <registry>/<image>:<tag>\n")
+	}
 
 	// Verbose: full penalty breakdown and orphan inferred-elf audit.
 	if *verbose && len(confidence.Penalties) > 0 {
@@ -168,7 +181,8 @@ func runBuild(args []string) int {
 		return 1
 	}
 
-	// Exit 2 if non-resolv.conf scratch-compat files were missing.
+	// Exit 2 for any scratch-compat warning that is not resolv.conf — resolv.conf
+	// absence is expected because the container runtime bind-mounts it at startup.
 	for _, w := range result.ScratchWarnings {
 		if !containsStr(w, "resolv.conf") {
 			return 2

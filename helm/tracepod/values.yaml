@@ -1,0 +1,35 @@
+sensor:
+  image:
+    repository: ghcr.io/tracepod/tracepod-sensor
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # controllerURL: when set, the sensor POSTs per-container manifests to the
+  # Tracepod controller instead of writing them to disk. Leave empty to run in
+  # standalone mode — profiles are written to each node's disk via hostPath.
+  #
+  # Example (closed-source controller):
+  #   controllerURL: "http://tracepod-controller.tracepod.svc:8080"
+  controllerURL: ""
+
+  # profileHostPath: node-local directory where profile JSON files are written
+  # in standalone mode (controllerURL is empty). One subdirectory per container ID.
+  # Ignored when controllerURL is set.
+  profileHostPath: /var/lib/tracepod/profiles
+
+  # resources: resource requests/limits for the sensor container.
+  # The sensor is lightweight — default is unbounded. Set limits for production.
+  resources: {}
+  # resources:
+  #   requests:
+  #     cpu: 50m
+  #     memory: 64Mi
+  #   limits:
+  #     memory: 256Mi
+
+  # nodeSelector, tolerations, affinity: standard scheduling controls.
+  # By default the sensor runs on every node. Use tolerations to include
+  # nodes with taints (e.g. GPU nodes, spot nodes).
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

@@ -1,6 +1,6 @@
 // Package hardener pulls an OCI image, extracts the files listed in a sensor
-// manifest, and resolves ELF shared-library dependencies into the extracted
-// tree. Assembling a new OCI image from the extracted files is M5.
+// manifest, resolves ELF shared-library dependencies, and assembles a new
+// FROM-scratch OCI image.
 package hardener
 
 import (

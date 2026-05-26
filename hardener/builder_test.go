@@ -94,8 +94,8 @@ func TestBuildConfig_SingleHistoryEntry(t *testing.T) {
 	if len(out.History) != 1 {
 		t.Errorf("History len = %d, want exactly 1", len(out.History))
 	}
-	if got := out.History[0].CreatedBy; got != "tracepod hardener (M5)" {
-		t.Errorf("History[0].CreatedBy = %q, want tracepod hardener (M5)", got)
+	if got := out.History[0].CreatedBy; got != "tracepod hardener" {
+		t.Errorf("History[0].CreatedBy = %q, want tracepod hardener", got)
 	}
 }
 
