@@ -1,0 +1,128 @@
+vmType: "qemu"
+arch: "aarch64"
+memory: "6GiB"
+cpus: 4
+
+images:
+  # Pinned release with digest — preferred (reproducible, verified).
+  - location: "https://cloud-images.ubuntu.com/releases/noble/release-20260225/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+    digest: "sha256:99e1d482b958e6bfd0183a4c48ce6dc334e09a3e29a4560f6f5ff85593d09d1d"
+  # Fallback to latest if the pinned release is no longer available.
+  # Run `limactl prune` to clear the cache if you hit a stale download.
+  - location: "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+
+mounts:
+  - location: "~"
+    writable: true
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux
+
+      apt-get update -y
+      apt-get install -y --no-install-recommends \
+        ca-certificates curl gnupg git make
+
+      # Docker CE — provides containerd.io, docker CLI, buildx.
+      # Required for 'docker build' (sensor image) and kind.
+      install -m 0755 -d /etc/apt/keyrings
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+        | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      chmod a+r /etc/apt/keyrings/docker.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+        https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+        | tee /etc/apt/sources.list.d/docker.list
+      apt-get update -y
+      apt-get install -y docker-ce docker-ce-cli containerd.io \
+                         docker-buildx-plugin docker-compose-plugin
+
+      # Make the Docker socket world-accessible (mode 0666) via systemd socket-activation
+      # override. This eliminates the docker-group dependency, which is critical because
+      # Lima establishes its SSH ControlMaster BEFORE cloud-init runs `usermod -aG docker`.
+      # The guest user's docker group membership is therefore invisible to every
+      # `limactl shell` command for the VM's entire lifetime — `make e2e` (which runs the
+      # e2e script via `limactl shell`) would otherwise fail with "permission denied" on
+      # the docker socket. Dev VM only: this trade-off is acceptable.
+      install -d -m 0755 /etc/systemd/system/docker.socket.d
+      printf '[Socket]\nSocketMode=0666\n' \
+        > /etc/systemd/system/docker.socket.d/lima-dev.conf
+      systemctl daemon-reload
+      systemctl restart docker.socket docker.service
+
+      # Also add the guest user to the docker group — belt-and-suspenders for
+      # interactive login sessions started AFTER cloud-init (e.g. `limactl shell` opened
+      # in a fresh terminal after `limactl start` completes).
+      LIMA_USER=$(getent passwd | awk -F: '$6 ~ /^\/home\// {print $1; exit}')
+      if [[ -n "$LIMA_USER" ]]; then
+        usermod -aG docker "$LIMA_USER"
+      fi
+
+      # kind v0.27.0 — matches CI (e2e.yaml uses the same version).
+      curl -fsSL -o /usr/local/bin/kind \
+        https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-arm64
+      chmod +x /usr/local/bin/kind
+
+      # kubectl — latest stable.
+      KUBECTL_VERSION=$(curl -fsSL https://dl.k8s.io/release/stable.txt)
+      curl -fsSL -o /usr/local/bin/kubectl \
+        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/arm64/kubectl"
+      chmod +x /usr/local/bin/kubectl
+
+      # helm 3
+      curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -eux
+
+      # Go 1.26 — needed to build bin/harden from source and invoke 'make e2e-ci'.
+      # The sensor Docker build brings its own clang/bpftool; no BPF toolchain needed here
+      # because arm64 BPF objects are committed to git.
+      GO_VERSION="1.26.0"
+      curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz" \
+        | sudo tar -C /usr/local -xz
+
+      # Persist PATH for both interactive and non-interactive shells.
+      for rc in ~/.bashrc ~/.profile; do
+        grep -q '/usr/local/go/bin' "$rc" 2>/dev/null || \
+          echo 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' >> "$rc"
+      done
+
+# Port-forward the e2e local OCI registry (used by 'harden build --push') to the Mac host.
+# Access at localhost:5001 from the Mac while the registry container is running.
+portForwards:
+  - guestPort: 5001
+    hostPort: 5001
+    hostIP: "127.0.0.1"
+
+probes:
+  - description: "docker runs"
+    script: |
+      #!/bin/bash
+      docker info >/dev/null 2>&1
+    hint: "Docker CE install failed — check /etc/apt/sources.list.d/docker.list"
+  - description: "kind present"
+    script: |
+      #!/bin/bash
+      kind version >/dev/null 2>&1
+    hint: "kind install failed"
+  - description: "kubectl present"
+    script: |
+      #!/bin/bash
+      kubectl version --client >/dev/null 2>&1
+    hint: "kubectl install failed"
+  - description: "helm present"
+    script: |
+      #!/bin/bash
+      helm version >/dev/null 2>&1
+    hint: "helm install failed"
+  - description: "Go 1.26 present"
+    script: |
+      #!/bin/bash
+      /usr/local/go/bin/go version 2>&1 | grep -q 'go1\.26'
+    hint: "Go install failed — check GO_VERSION and go.dev/dl for latest 1.26.x"

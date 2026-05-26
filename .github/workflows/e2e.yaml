@@ -1,0 +1,93 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    name: e2e (sensor profiles nginx → harden → validate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # ── BPF toolchain ────────────────────────────────────────────────────────
+      # ubuntu-latest has /sys/kernel/btf/vmlinux (BTF enabled). We install
+      # clang-18 and bpftool so that 'make generate' can produce the amd64 BPF
+      # object files (arm64 objects are committed to git; amd64 are not).
+      - name: Install BPF build deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends clang-18 llvm-18 libbpf-dev
+
+      - name: Install bpftool
+        run: |
+          BPFTOOL_VERSION=v7.7.0
+          curl -fsSL \
+            "https://github.com/libbpf/bpftool/releases/download/${BPFTOOL_VERSION}/bpftool-${BPFTOOL_VERSION}-amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin
+          sudo chmod +x /usr/local/bin/bpftool
+
+      # ── Sensor image ─────────────────────────────────────────────────────────
+      - name: Generate BPF objects (amd64)
+        run: make generate
+
+      - name: Build sensor binary (amd64)
+        run: CGO_ENABLED=0 go build -o sensor ./cmd/sensor
+
+      - name: Build sensor Docker image
+        run: docker build -f Dockerfile.sensor.dev -t tracepod-sensor:e2e .
+
+      # ── kind + helm ──────────────────────────────────────────────────────────
+      - name: Install kind v0.27.0
+        run: |
+          curl -fsSL -o /tmp/kind \
+            https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
+
+      - uses: azure/setup-helm@v4
+
+      # ── E2E test ─────────────────────────────────────────────────────────────
+      # run-e2e.sh detects that tracepod-sensor:e2e already exists (built above)
+      # and skips Phase 1 (sensor image build). All other phases run normally.
+      - name: Create profile dir
+        run: mkdir -p /tmp/tracepod-e2e-profiles
+
+      - name: Run e2e
+        run: bash hack/e2e/run-e2e.sh
+
+      # ── Artifacts & debug ────────────────────────────────────────────────────
+      - name: Collect debug info on failure
+        if: failure()
+        run: |
+          echo "=== kernel version ==="
+          uname -r
+          echo "=== kind cluster nodes ==="
+          kind get clusters || true
+          kubectl get nodes -o wide 2>/dev/null || true
+          echo "=== all pods ==="
+          kubectl get pods -A 2>/dev/null || true
+          echo "=== sensor pod logs ==="
+          kubectl logs -l app.kubernetes.io/name=tracepod-sensor --tail=100 2>/dev/null || true
+          echo "=== profile directory ==="
+          find /tmp/tracepod-e2e-profiles 2>/dev/null || true
+
+      - name: Upload profile artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-profiles
+          path: /tmp/tracepod-e2e-profiles/
+          if-no-files-found: ignore
+          retention-days: 7
