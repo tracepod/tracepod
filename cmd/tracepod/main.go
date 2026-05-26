@@ -1,6 +1,10 @@
-// Command tracepod is the user-facing CLI for the TracePod profiling system.
+// Command tracepod is the CLI client for the Tracepod controller.
 // It transparently port-forwards to the controller running in your Kubernetes
 // cluster and provides subcommands to list, retrieve, and stop profiling sessions.
+//
+// Requires the Tracepod controller to be deployed in your cluster (via Helm).
+// For standalone usage without a controller, retrieve manifests directly from
+// the sensor pod with kubectl exec.
 //
 // Usage:
 //
@@ -8,9 +12,9 @@
 //
 // Commands:
 //
-//	profile list  [--namespace <ns>]
-//	profile get   --namespace <ns> --deployment <name> [--output <file>]
-//	profile stop  --namespace <ns> --deployment <name>
+//	profile list  [--namespace <ns>]                                    list sessions
+//	profile get   --namespace <ns> --deployment <name> [--output file]  download manifest
+//	profile stop  --namespace <ns> --deployment <name>                  freeze manifest
 //	version
 package main
 
@@ -32,17 +36,29 @@ var (
 )
 
 func main() {
-	kubeconfig := flag.String("kubeconfig", defaultKubeconfig(), "path to kubeconfig file")
-	ctrlNS := flag.String("controller-namespace", "tracepod", "namespace where the TracePod controller is deployed")
+	kubeconfig   := flag.String("kubeconfig", defaultKubeconfig(), "path to kubeconfig file")
+	ctrlNS       := flag.String("controller-namespace", "tracepod", "namespace where the Tracepod controller is deployed")
+	showVersion  := flag.Bool("version", false, "print version and exit")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tracepod [--kubeconfig <path>] [--controller-namespace <ns>] <command>\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tracepod [flags] <command>\n\n")
+		fmt.Fprintf(os.Stderr, "Connects to the Tracepod controller in your Kubernetes cluster via port-forward.\n")
+		fmt.Fprintf(os.Stderr, "Requires the controller to be deployed (helm install tracepod ./helm/tracepod).\n\n")
+		fmt.Fprintf(os.Stderr, "Flags:\n")
+		fmt.Fprintf(os.Stderr, "  --kubeconfig <path>            path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)\n")
+		fmt.Fprintf(os.Stderr, "  --controller-namespace <ns>    namespace where controller is deployed (default: tracepod)\n")
+		fmt.Fprintf(os.Stderr, "  --version                      print version and exit\n\n")
 		fmt.Fprintf(os.Stderr, "Commands:\n")
-		fmt.Fprintf(os.Stderr, "  profile list  [--namespace <ns>]\n")
-		fmt.Fprintf(os.Stderr, "  profile get   --namespace <ns> --deployment <name> [--output <file>]\n")
-		fmt.Fprintf(os.Stderr, "  profile stop  --namespace <ns> --deployment <name>\n")
-		fmt.Fprintf(os.Stderr, "  version\n")
+		fmt.Fprintf(os.Stderr, "  profile list  [--namespace <ns>]                                     list profiling sessions\n")
+		fmt.Fprintf(os.Stderr, "  profile get   --namespace <ns> --deployment <name> [--output <file>] download manifest\n")
+		fmt.Fprintf(os.Stderr, "  profile stop  --namespace <ns> --deployment <name>                   stop profiling\n")
+		fmt.Fprintf(os.Stderr, "  version                                                              print version\n")
 	}
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("tracepod %s (%s)\n", version, commit)
+		os.Exit(0)
+	}
 
 	args := flag.Args()
 	if len(args) == 0 {
@@ -56,7 +72,7 @@ func main() {
 	case "version":
 		fmt.Printf("tracepod %s (%s)\n", version, commit)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n", args[0])
+		fmt.Fprintf(os.Stderr, "error: unknown command %q\n", args[0])
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -64,7 +80,11 @@ func main() {
 
 func runProfile(args []string, kubeconfig, ctrlNS string) {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: tracepod profile <list|get|stop>\n")
+		fmt.Fprintf(os.Stderr, "Usage: tracepod profile <subcommand>\n\n")
+		fmt.Fprintf(os.Stderr, "Subcommands:\n")
+		fmt.Fprintf(os.Stderr, "  list   List active and completed profiling sessions\n")
+		fmt.Fprintf(os.Stderr, "  get    Download a merged manifest for a deployment\n")
+		fmt.Fprintf(os.Stderr, "  stop   Stop profiling a deployment (freezes the manifest)\n")
 		os.Exit(1)
 	}
 	switch args[0] {
@@ -75,7 +95,7 @@ func runProfile(args []string, kubeconfig, ctrlNS string) {
 	case "stop":
 		runStop(args[1:], kubeconfig, ctrlNS)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown profile subcommand %q\n", args[0])
+		fmt.Fprintf(os.Stderr, "error: unknown profile subcommand %q\n", args[0])
 		os.Exit(1)
 	}
 }
@@ -143,7 +163,7 @@ func runGet(args []string, kubeconfig, ctrlNS string) {
 		os.Stdout.Write(data)
 		return
 	}
-	if err := os.WriteFile(*output, data, 0o644); err != nil {
+	if err := os.WriteFile(*output, data, 0o600); err != nil {
 		fatal("write output file: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "manifest written to %s\n", *output)

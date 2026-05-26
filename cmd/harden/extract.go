@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -9,15 +10,16 @@ import (
 	"github.com/tracepod/tracepod/hardener"
 )
 
-// runExtract implements the "hardener extract" subcommand (M4).
+// runExtract implements the "harden extract" subcommand.
 // It pulls an OCI image, extracts the files listed in a sensor manifest,
 // resolves ELF shared-library dependencies, and writes the complete file
-// tree to a destination directory on disk.
+// tree to a destination directory on disk. Useful for inspecting what would
+// be included before committing to a full harden build.
 func runExtract(args []string) int {
 	fs := flag.NewFlagSet("extract", flag.ContinueOnError)
 	var (
 		manifestPath = fs.String("manifest", "", "Path to manifest JSON produced by the sensor (required)")
-		imageRef     = fs.String("image", "", "OCI image reference, e.g. nginx:1.25-alpine (required)")
+		imageRef     = fs.String("source", "", "OCI image reference, e.g. nginx:1.25-alpine (required)")
 		outputDir    = fs.String("output", "", "Destination directory for extracted file tree (required)")
 		platform     = fs.String("platform", "linux/amd64", "Image platform, e.g. linux/amd64 or linux/arm64")
 		username     = fs.String("username", "", "Registry username (overrides keychain when combined with --password)")
@@ -26,12 +28,27 @@ func runExtract(args []string) int {
 		workDir      = fs.String("work-dir", "", "Temp directory for staging (default: system temp)")
 	)
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 1
 	}
 
 	if *manifestPath == "" || *imageRef == "" || *outputDir == "" {
 		fs.Usage()
-		fmt.Fprintln(os.Stderr, "error: --manifest, --image, and --output are required")
+		fmt.Fprintln(os.Stderr, "error: --manifest, --source, and --output are required")
+		return 1
+	}
+
+	if (*username == "") != (*password == "") {
+		fmt.Fprintln(os.Stderr, "error: --username and --password must both be set or both be empty")
+		return 1
+	}
+
+	// Validate the output directory early — before pulling the image — so a permission
+	// or path error fails fast rather than wasting time on a large image download.
+	if err := os.MkdirAll(*outputDir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "error: create output dir: %v\n", err)
 		return 1
 	}
 
@@ -81,10 +98,6 @@ func runExtract(args []string) int {
 		return 1
 	}
 
-	if err := os.MkdirAll(*outputDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "error: create output dir: %v\n", err)
-		return 1
-	}
 	if err := hardener.CopyFileSet(m, stagingDir, *outputDir); err != nil {
 		fmt.Fprintf(os.Stderr, "error: copy file set: %v\n", err)
 		return 1

@@ -26,7 +26,7 @@ import (
 // Known limitations (cannot be solved statically):
 //   - dlopen(): runtime dynamic loading is not visible in ELF metadata.
 //   - LD_LIBRARY_PATH from the container's runtime environment is treated as
-//     unset. Safe-mode directory inclusion (M6) is the recommended mitigation
+//     unset. Directory inclusion via --include is the recommended mitigation
 //     for both cases.
 func ResolveELFDependencies(
 	extractedDir string,

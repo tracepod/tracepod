@@ -1,0 +1,60 @@
+Tracepod sensor deployed successfully.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Wait for the DaemonSet to be ready:
+
+  kubectl -n {{ .Release.Namespace }} rollout status daemonset/{{ include "tracepod.sensorName" . }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.sensor.controllerURL }}
+
+CONTROLLER MODE — profiles are posted to:
+  {{ .Values.sensor.controllerURL }}
+
+Use the tracepod CLI to list and retrieve profiles:
+
+  tracepod --controller-namespace {{ .Release.Namespace }} profile list
+
+{{- else }}
+
+STANDALONE MODE — profiles are written to each node at:
+  {{ .Values.sensor.profileHostPath }}/<container-id>/files.json
+
+After a container stops, retrieve its profile with:
+
+  # Find the sensor pod on the node where your container ran:
+  NODE=$(kubectl get pod <your-pod> -o jsonpath='{.spec.nodeName}')
+  SENSOR=$(kubectl -n {{ .Release.Namespace }} get pod \
+    -l app.kubernetes.io/name=tracepod-sensor \
+    --field-selector spec.nodeName=$NODE \
+    -o jsonpath='{.items[0].metadata.name}')
+
+  # List available profiles:
+  kubectl -n {{ .Release.Namespace }} exec $SENSOR -- ls /profiles/
+
+  # Copy a profile to your local machine:
+  kubectl -n {{ .Release.Namespace }} exec $SENSOR -- \
+    cat /profiles/<container-id>/files.json > files.json
+
+Then build a hardened image from the profile:
+
+  harden build \
+    --manifest files.json \
+    --source   <your-image-ref> \
+    --output   /tmp/hardened
+
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IMPORTANT: The sensor requires containerd with NRI enabled.
+Verify NRI is enabled on your nodes:
+
+  grep -E "^\s*disable\s*=" /etc/containerd/config.toml | grep nri
+  # Should print: disable = false   (or be absent — enabled by default in containerd 2.x)
+
+Containers started with docker run or nerdctl run are NOT profiled.
+Only containers started through the Kubernetes CRI (kubelet) are observed.
+
+Documentation: https://github.com/tracepod/tracepod

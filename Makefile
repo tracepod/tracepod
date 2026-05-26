@@ -1,7 +1,7 @@
 BPF_CLANG  := clang-18
 BPF_TARGET ?= $(shell go env GOARCH)
 
-.PHONY: all build build-harden build-tracepod clean generate test
+.PHONY: all build build-harden build-tracepod clean generate test lint fmt helm-lint
 
 all: build
 
@@ -33,6 +33,18 @@ build-tracepod:
 ## Run unit tests.
 test:
 	go test ./...
+
+## Run golangci-lint.
+lint:
+	golangci-lint run
+
+## Format all Go source files.
+fmt:
+	gofmt -l -w ./...
+
+## Lint the Helm chart.
+helm-lint:
+	helm lint helm/tracepod
 
 clean:
 	rm -rf bin/

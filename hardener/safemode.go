@@ -1,4 +1,4 @@
-// Package hardener — safemode.go implements directory-inclusion (M6).
+// Package hardener — safemode.go implements directory-inclusion.
 // ApplyDirectoryInclusion walks caller-specified directories in the staging
 // area and adds every regular file found to the manifest with
 // SourceDirectoryInclusion. This is the primary escape hatch for paths the

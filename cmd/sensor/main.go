@@ -1,26 +1,38 @@
 //go:build linux
 
 // Command sensor attaches BPF kprobes to do_sys_openat2, security_bprm_check,
-// and security_mmap_file and streams container file-open
-// events, aggregating them into per-container file manifests.
+// and security_mmap_file and streams container file-open events, aggregating
+// them into per-container file manifests.
 //
 // On StopContainer (via NRI hook), a JSON manifest is written to:
 //
-//	profiles/<container-id>/files.json
+//	<profile-dir>/<container-id>/files.json
 //
 // The manifest records every file opened inside the container with its
 // observation source, access modes, first/last seen timestamps, and open count.
 // Noisy paths (/proc, /sys, /dev, /tmp, *.log) are filtered before aggregation.
 //
+// The sensor integrates with containerd via NRI. Only containers started through
+// the Kubernetes CRI (kubelet → containerd) are profiled. Containers started
+// with docker run or nerdctl run bypass NRI and produce no manifest.
+//
 // If the NRI socket is unreachable (containerd absent or NRI disabled) the
-// sensor warns and continues — useful for bare-metal debugging runs where all
-// cgroups are implicitly allowed.
+// sensor warns and continues — useful for bare-metal debugging runs where
+// cgroups are added manually via --cgroup-path.
 //
 // Flags:
 //
-//	--cgroup-path <path>  manually add a cgroup to the allowlist (debug utility;
-//	                      useful when NRI is unavailable, e.g. tracing your own shell)
-//	--profile-dir <path>  directory for manifest output (default: profiles)
+//	--profile-dir <path>     directory for manifest output (default: profiles)
+//	--controller-url <url>   Tracepod controller URL; when set, manifests are POSTed
+//	                         to the controller instead of written to --profile-dir
+//	                         (e.g. http://tracepod-controller.tracepod.svc:8080)
+//	--node-name <name>       node name included in controller POSTs; set automatically
+//	                         via the Downward API in DaemonSet deployments
+//	--cgroup-path <path>     manually add a cgroup to the allowlist (debug utility;
+//	                         useful when NRI is unavailable, e.g. tracing your own shell)
+//	--verbose                print every file-open event to stderr (very noisy;
+//	                         for debugging only)
+//	--version                print version and exit
 package main
 
 import (
@@ -59,6 +71,7 @@ func main() {
 	controllerURL := flag.String("controller-url", "", "TracePod controller URL for K8s mode (e.g. http://tracepod-controller.tracepod.svc:8080)")
 	nodeName      := flag.String("node-name", "", "node name (set via Downward API in DaemonSet)")
 	showVersion   := flag.Bool("version", false, "print version and exit")
+	verbose       := flag.Bool("verbose", false, "print every file-open event to stderr (noisy; for debugging)")
 	flag.Parse()
 
 	if *showVersion {
@@ -94,7 +107,7 @@ func main() {
 	}
 
 	// router dispatches ring buffer events to the right per-container aggregator.
-	router := newRouter(*profileDir, *controllerURL, *nodeName, resolver)
+	router := newRouter(*profileDir, *controllerURL, *nodeName, resolver, *verbose)
 
 	// Connect the NRI plugin so containerd can push container lifecycle events.
 	// If NRI is unavailable we warn rather than fatal — the sensor still runs
@@ -134,9 +147,10 @@ type cgroupRouter struct {
 	controllerURL string
 	nodeName      string
 	resolver      sensor.WorkloadResolver // nil in standalone mode
+	verbose       bool
 }
 
-func newRouter(profileDir, controllerURL, nodeName string, resolver sensor.WorkloadResolver) *cgroupRouter {
+func newRouter(profileDir, controllerURL, nodeName string, resolver sensor.WorkloadResolver, verbose bool) *cgroupRouter {
 	return &cgroupRouter{
 		aggs:          make(map[uint64]*manifest.Aggregator),
 		ctrToCgroup:   make(map[string]uint64),
@@ -146,6 +160,7 @@ func newRouter(profileDir, controllerURL, nodeName string, resolver sensor.Workl
 		controllerURL: controllerURL,
 		nodeName:      nodeName,
 		resolver:      resolver,
+		verbose:       verbose,
 	}
 }
 
@@ -157,7 +172,7 @@ func (r *cgroupRouter) onContainerStart(containerID string, cgroupID uint64, cgr
 	r.aggs[cgroupID] = manifest.NewAggregator(containerID, "")
 	r.ctrToCgroup[containerID] = cgroupID
 	r.cgroupFSPath[cgroupID] = cgroupFSPath
-	fmt.Fprintf(os.Stderr, "sensor: aggregator created for container=%s cgroup=%d\n", containerID, cgroupID)
+	fmt.Fprintf(os.Stderr, "sensor: tracking  container=%s cgroup=%d\n", containerID[:12], cgroupID)
 }
 
 // onContainerStop is called by the NRI plugin when a container stops.
@@ -189,7 +204,9 @@ func (r *cgroupRouter) onContainerStop(containerID string, cgroupID uint64, pod 
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "sensor: create %s: %v\n", outPath, err)
 			} else {
-				if err := json.NewEncoder(f).Encode(snap); err != nil {
+				enc := json.NewEncoder(f)
+				enc.SetIndent("", "  ")
+				if err := enc.Encode(snap); err != nil {
 					fmt.Fprintf(os.Stderr, "sensor: write manifest: %v\n", err)
 				} else {
 					fmt.Fprintf(os.Stderr, "sensor: manifest written → %s\n", outPath)
@@ -279,7 +296,9 @@ func (r *cgroupRouter) handleOpenat(e ringbuf.Event) {
 
 	modes := accessModesFromFlags(e.FlagsOrProt)
 	agg.RecordFile(path, manifest.SourceDirect, modes, time.Now())
-	fmt.Printf("pid=%d cgroup=%d comm=%s file=%s\n", e.Pid, e.CgroupID, e.Process(), path)
+	if r.verbose {
+		fmt.Fprintf(os.Stderr, "pid=%d cgroup=%d comm=%s file=%s\n", e.Pid, e.CgroupID, e.Process(), path)
+	}
 }
 
 // handleExecve processes an execve event: records the binary (and script
@@ -298,13 +317,17 @@ func (r *cgroupRouter) handleExecve(e ringbuf.Event) {
 	modes := []manifest.AccessMode{manifest.AccessExecute}
 	t := time.Now()
 	agg.RecordFile(binary, manifest.SourceDirect, modes, t)
-	fmt.Printf("pid=%d cgroup=%d comm=%s exec=%s\n", e.Pid, e.CgroupID, e.Process(), binary)
+	if r.verbose {
+		fmt.Fprintf(os.Stderr, "pid=%d cgroup=%d comm=%s exec=%s\n", e.Pid, e.CgroupID, e.Process(), binary)
+	}
 
 	// For scripts with a shebang, also record the interpreter.
 	interp := r.cleanPath(e.InterpPath())
 	if interp != "" && interp != binary {
 		agg.RecordFile(interp, manifest.SourceDirect, modes, t)
-		fmt.Printf("pid=%d cgroup=%d comm=%s exec-interp=%s\n", e.Pid, e.CgroupID, e.Process(), interp)
+		if r.verbose {
+			fmt.Fprintf(os.Stderr, "pid=%d cgroup=%d comm=%s exec-interp=%s\n", e.Pid, e.CgroupID, e.Process(), interp)
+		}
 	}
 }
 

@@ -1,0 +1,18 @@
+apiVersion: v2
+name: tracepod
+description: eBPF container file profiler for Kubernetes — sensor DaemonSet
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - ebpf
+  - security
+  - container
+  - hardening
+  - profiling
+home: https://github.com/tracepod/tracepod
+sources:
+  - https://github.com/tracepod/tracepod
+maintainers:
+  - name: Tracepod
+    url: https://github.com/tracepod/tracepod

@@ -3,10 +3,11 @@
 // Subcommands:
 //
 //	extract  Pull an OCI image, extract the manifest file set, resolve ELF deps
-//	         and write the file tree to disk. (M4)
+//	         and write the file tree to disk. Use this to inspect what would be
+//	         included before committing to a full build.
 //
 //	build    Assemble a FROM-scratch OCI image from a sensor manifest, write it
-//	         as an OCI layout, and optionally push to a registry. (M5/M6)
+//	         as an OCI layout to --output, and optionally push to --push.
 //
 //	version  Print version information and exit.
 package main
@@ -51,11 +52,17 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `Usage: harden <subcommand> [flags]
 
 Subcommands:
-  extract   Pull an OCI image and extract the sensor manifest file set to disk
-  build     Build a FROM-scratch OCI image from a sensor manifest
+  build     Build a FROM-scratch OCI image from a sensor manifest (main workflow)
+  extract   Pull an image and extract manifest files to disk (for inspection/debugging)
   version   Print version information
 
 Run "harden <subcommand> -help" for subcommand flags.
+
+Exit codes:
+  0  Success
+  1  Fatal error (missing flags, network failure, unresolved ELF dependencies)
+  2  Warning: non-resolv.conf scratch-compat file absent from source image layers
+     (resolv.conf absence is expected — it is bind-mounted by the container runtime)
 
 Version: %s (commit %s)
 `, version, commit)

@@ -1,0 +1,24 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - ineffassign
+    - goimports
+    - misspell
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/tracepod/tracepod
+
+issues:
+  exclude-rules:
+    # errcheck: allow unhandled errors on defer Close calls (common pattern)
+    - linters: [errcheck]
+      text: "defer.*Close"
+    # errcheck: flag.Parse with ExitOnError never returns an actionable error
+    - linters: [errcheck]
+      text: "fs.Parse"

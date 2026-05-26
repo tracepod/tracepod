@@ -1,0 +1,32 @@
+# The sensor needs get access to pods and replicasets to resolve the
+# pod → ReplicaSet → Deployment owner chain when posting manifests to the
+# controller (--controller-url mode). These permissions are harmless in
+# standalone mode where no K8s API calls are made.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "tracepod.sensorName" . }}
+  labels:
+    {{- include "tracepod.sensorLabels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [get]
+- apiGroups: [apps]
+  resources: [replicasets]
+  verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "tracepod.sensorName" . }}
+  labels:
+    {{- include "tracepod.sensorLabels" . | nindent 4 }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "tracepod.sensorName" . }}
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "tracepod.sensorName" . }}
+  apiGroup: rbac.authorization.k8s.io

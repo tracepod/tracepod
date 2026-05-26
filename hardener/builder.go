@@ -1,5 +1,5 @@
 // Package hardener — builder.go assembles a FROM-scratch OCI image from the
-// files collected during profiling. This is M5: the image factory.
+// files collected during profiling.
 package hardener
 
 import (
@@ -210,7 +210,7 @@ func BuildImage(
 	arch := archFromPlatform(opts.Platform)
 	scratchWarnings := checkScratchCompat(m, stagingDir, arch)
 
-	// Apply directory inclusion for any --include paths (M6). This runs after
+	// Apply directory inclusion for any --include paths. This runs after
 	// ELF resolution and scratch-compat injection so that directory-included
 	// files respect the same precedence order: direct > inferred-elf > manual >
 	// directory-inclusion.
@@ -354,7 +354,7 @@ func buildConfigFile(
 	out.History = []v1.History{
 		{
 			Created:   v1.Time{Time: time.Now().UTC()},
-			CreatedBy: "tracepod hardener (M5)",
+			CreatedBy: "tracepod hardener",
 			Comment:   fmt.Sprintf("source=%s digest=%s files=%d", sourceRef, sourceDigest, len(m.Files)),
 		},
 	}
