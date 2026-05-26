@@ -48,8 +48,10 @@ jobs:
             | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
       - name: Run golangci-lint
         run: |
-          PKGS=$(go list ./... | grep -Ev 'internal/probe$|cmd/sensor$')
-          "$(go env GOPATH)/bin/golangci-lint" run --timeout 3m $PKGS
+          # Use {{.Dir}} to get filesystem paths — golangci-lint expects directories,
+          # not import paths.
+          DIRS=$(go list -f '{{.Dir}}' ./... | grep -Ev '/internal/probe$|/cmd/sensor$')
+          "$(go env GOPATH)/bin/golangci-lint" run --timeout 3m $DIRS
 
   helm-lint:
     name: helm lint
