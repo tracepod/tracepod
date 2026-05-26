@@ -17,7 +17,7 @@ func TestIsECRHost(t *testing.T) {
 	}{
 		{"123456789.dkr.ecr.eu-west-1.amazonaws.com", true},
 		{"123456789.dkr.ecr.us-east-1.amazonaws.com", true},
-		{"public.ecr.aws", false},           // public ECR has no .dkr.ecr. component
+		{"public.ecr.aws", false}, // public ECR has no .dkr.ecr. component
 		{"index.docker.io", false},
 		{"ghcr.io", false},
 		{"myregistry.azurecr.io", false},

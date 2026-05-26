@@ -125,8 +125,8 @@ var scratchEssentials = []string{
 var dynamicLinkers = map[string][]string{
 	"amd64": {
 		"/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2", // glibc (Debian/Ubuntu)
-		"/lib64/ld-linux-x86-64.so.2",                 // glibc (RHEL/Fedora)
-		"/lib/ld-musl-x86_64.so.1",                    // musl (Alpine)
+		"/lib64/ld-linux-x86-64.so.2",                // glibc (RHEL/Fedora)
+		"/lib/ld-musl-x86_64.so.1",                   // musl (Alpine)
 	},
 	"arm64": {
 		"/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", // glibc (Debian/Ubuntu)

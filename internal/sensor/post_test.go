@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tracepod/tracepod/manifest"
 	"github.com/tracepod/tracepod/internal/sensor"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 func emptyManifest() manifest.Manifest {

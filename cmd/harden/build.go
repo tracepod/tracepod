@@ -39,9 +39,9 @@ func runBuild(args []string) int {
 		verbose            = fs.Bool("verbose", false, "Print full confidence penalty breakdown and ELF audit warnings")
 		sbom               = fs.Bool("sbom", false, "Generate CycloneDX and SPDX SBOMs via syft into the --output directory")
 		sbomSignKey        = fs.String("sbom-sign-key", "", "Path to cosign private key for signing SBOMs (requires --sbom)")
-		includePaths multiFlag
-		mkdirs       multiFlag
-		touches      multiFlag
+		includePaths       multiFlag
+		mkdirs             multiFlag
+		touches            multiFlag
 	)
 	fs.Var(&includePaths, "include", "Force-include all files under this in-image directory path (repeatable, e.g. --include /usr/share/nginx/html)")
 	fs.Var(&mkdirs, "mkdir", "Create an empty directory in the hardened image even if absent from source (repeatable, e.g. --mkdir /var/cache/nginx/client_temp)")

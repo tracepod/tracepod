@@ -152,8 +152,8 @@ func TestComputeConfidence_ManualEntries(t *testing.T) {
 	start := longAgo()
 	end := now()
 	m := makeManifest(start, end, map[string]FileEntry{
-		"/usr/sbin/nginx":     directEntry(),
-		"/run/nginx.pid":      manualEntry("startup-race: pid file"),
+		"/usr/sbin/nginx":      directEntry(),
+		"/run/nginx.pid":       manualEntry("startup-race: pid file"),
 		"/var/log/nginx/a.log": manualEntry("startup-race: log file"),
 		"/var/log/nginx/e.log": manualEntry("startup-race: log file"),
 	})
@@ -171,9 +171,9 @@ func TestComputeConfidence_ScratchCompatExcluded(t *testing.T) {
 	start := longAgo()
 	end := now()
 	m := makeManifest(start, end, map[string]FileEntry{
-		"/usr/sbin/nginx": directEntry(),
-		"/etc/passwd":     scratchEntry(),
-		"/etc/group":      scratchEntry(),
+		"/usr/sbin/nginx":    directEntry(),
+		"/etc/passwd":        scratchEntry(),
+		"/etc/group":         scratchEntry(),
 		"/etc/nsswitch.conf": scratchEntry(),
 	})
 	result := ComputeConfidence(m, DefaultMinProfileDuration)
@@ -216,9 +216,9 @@ func TestComputeConfidence_OrphanInferredNotPenalised(t *testing.T) {
 	end := now()
 	// nginx binary not in direct set — libssl was inferred from it but never directly observed.
 	m := makeManifest(start, end, map[string]FileEntry{
-		"/usr/sbin/nginx":       directEntry(),
-		"/lib/libssl.so":        inferredEntry("/usr/sbin/myapp"), // parent not in manifest
-		"/lib/libcrypto.so":     inferredEntry("/usr/sbin/myapp"),
+		"/usr/sbin/nginx":   directEntry(),
+		"/lib/libssl.so":    inferredEntry("/usr/sbin/myapp"), // parent not in manifest
+		"/lib/libcrypto.so": inferredEntry("/usr/sbin/myapp"),
 	})
 	result := ComputeConfidence(m, DefaultMinProfileDuration)
 	if result.Score != 100 {
