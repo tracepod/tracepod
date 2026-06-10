@@ -1,9 +1,10 @@
 # Compiled binaries
 bin/
-# Repo-root binaries from `go build ./cmd/...` without -o bin/...
+# Repo-root binaries from `go build ./cmd/...` (or ./hack/...) without -o bin/...
 /harden
 /sensor
 /tracepod
+/schemaversion
 
 # vmlinux.h is generated from the running kernel's BTF — not portable.
 # The bpf2go-generated openat_*bpf*.{go,o} files ARE committed: they are

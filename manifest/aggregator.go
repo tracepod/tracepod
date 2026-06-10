@@ -21,18 +21,58 @@ type Aggregator struct {
 	imageRef     string
 	profileStart time.Time
 
+	// R2 coverage evidence. attachKnown gates ProcessStartObserved — without a
+	// recorded attach the marker is always false (toward-false rule).
+	attachTime            time.Time
+	attachKnown           bool
+	processAlreadyRunning bool      // a process was already in the cgroup at attach
+	firstExecTime         time.Time // zero until the first exec is observed
+
+	// R3 start-event records, in observation order.
+	starts []StartEvent
+
 	files map[string]FileEntry // keyed by absolute path
 }
 
 // NewAggregator creates a fresh Aggregator for the given container.
-// profileStart is set to now; call Snapshot to capture the end time.
+// profileStart is set to now and the container's first start event (R3) is
+// recorded at that instant. Call RecordAttach to supply the R2 attach evidence,
+// and Snapshot to capture the end time.
 func NewAggregator(containerID, imageRef string) *Aggregator {
+	now := time.Now().UTC()
 	return &Aggregator{
 		containerID:  containerID,
 		imageRef:     imageRef,
-		profileStart: time.Now().UTC(),
+		profileStart: now,
+		starts:       []StartEvent{{ContainerID: containerID, Timestamp: now}},
 		files:        make(map[string]FileEntry),
 	}
+}
+
+// RecordAttach records the R2 attach evidence: attachTime is when the sensor
+// added the container's cgroup to the BPF allowlist, and processAlreadyRunning
+// reports whether a process was already running in that cgroup at attach time
+// (read from cgroup.procs). A non-empty cgroup at attach means the workload's
+// first exec was dropped in-kernel before the cgroup was allowlisted, so the
+// startup race was lost — ProcessStartObserved can never be true in that case.
+//
+// Safe to call concurrently with RecordFile and Snapshot. The last call wins.
+func (a *Aggregator) RecordAttach(attachTime time.Time, processAlreadyRunning bool) {
+	a.mu.Lock()
+	a.attachTime = attachTime.UTC()
+	a.attachKnown = true
+	a.processAlreadyRunning = processAlreadyRunning
+	a.mu.Unlock()
+}
+
+// RecordStart appends an additional witnessed container start (R3). Used when a
+// container is restarted in place while its aggregator is still live, so a
+// single profile can carry more than one start record. The constructor already
+// records the first start, so callers only invoke this for subsequent restarts.
+func (a *Aggregator) RecordStart(containerID string, t time.Time) {
+	a.mu.Lock()
+	a.starts = append(a.starts, StartEvent{ContainerID: containerID, Timestamp: t.UTC()})
+	a.mu.Unlock()
 }
 
 // SetImageRef stores the OCI image reference for this container profile.
@@ -50,6 +90,12 @@ func (a *Aggregator) SetImageRef(ref string) {
 func (a *Aggregator) RecordFile(path string, source ObservationSource, modes []AccessMode, t time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
+	// R2: the first exec observed anchors the process-start marker. execve is the
+	// only source of AccessExecute, so an execute mode marks an exec event.
+	if a.firstExecTime.IsZero() && containsMode(modes, AccessExecute) {
+		a.firstExecTime = t.UTC()
+	}
 
 	existing, ok := a.files[path]
 	if !ok {
@@ -142,13 +188,46 @@ func (a *Aggregator) Snapshot() Manifest {
 		files[k] = v
 	}
 
+	starts := make([]StartEvent, len(a.starts))
+	copy(starts, a.starts)
+
+	cov := Coverage{
+		ProcessStartObserved: a.processStartObservedLocked(),
+		AttachTime:           a.attachTime,
+	}
+	if !a.firstExecTime.IsZero() {
+		fe := a.firstExecTime
+		cov.FirstExecTime = &fe
+	}
+
 	return Manifest{
-		SchemaVersion: "1",
-		ContainerID:   a.containerID,
-		ImageRef:      a.imageRef,
-		ProfileStart:  a.profileStart,
-		ProfileEnd:    time.Now().UTC(),
-		Files:         files,
+		SchemaVersion:   SchemaVersion,
+		ContainerID:     a.containerID,
+		ImageRef:        a.imageRef,
+		ProfileStart:    a.profileStart,
+		ProfileEnd:      time.Now().UTC(),
+		Coverage:        cov,
+		ContainerStarts: starts,
+		Files:           files,
+	}
+}
+
+// processStartObservedLocked computes the R2 marker. Caller must hold a.mu.
+//
+// Every axis must supply positive evidence; any gap resolves to false. See the
+// Coverage.ProcessStartObserved doc for the rationale (toward-false bias).
+func (a *Aggregator) processStartObservedLocked() bool {
+	switch {
+	case !a.attachKnown:
+		return false // no attach evidence recorded
+	case a.processAlreadyRunning:
+		return false // workload already running at attach → first exec was dropped
+	case a.firstExecTime.IsZero():
+		return false // never observed an exec → nothing anchors "from first exec"
+	case !a.attachTime.Before(a.firstExecTime):
+		return false // attach did not strictly precede the first observed exec
+	default:
+		return true
 	}
 }
 
@@ -158,6 +237,16 @@ func (a *Aggregator) WriteJSON(w io.Writer) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(m)
+}
+
+// containsMode reports whether modes includes m.
+func containsMode(modes []AccessMode, m AccessMode) bool {
+	for _, x := range modes {
+		if x == m {
+			return true
+		}
+	}
+	return false
 }
 
 // dedupeAccessModes merges new modes into existing, returning a deduplicated slice.

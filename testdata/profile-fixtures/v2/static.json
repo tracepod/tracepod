@@ -1,0 +1,47 @@
+{
+  "schema_version": 2,
+  "container_id": "443524e0830a287ec56dd6caa76918a0d971f02eee765d77ae82b3ac97e1ab7e",
+  "profile_start": "2026-06-10T06:41:44.101485503Z",
+  "profile_end": "2026-06-10T06:42:31.137000418Z",
+  "coverage": {
+    "process_start_observed": true,
+    "attach_time": "2026-06-10T06:41:44.101468669Z",
+    "first_exec_time": "2026-06-10T06:41:44.103809525Z"
+  },
+  "container_starts": [
+    {
+      "container_id": "443524e0830a287ec56dd6caa76918a0d971f02eee765d77ae82b3ac97e1ab7e",
+      "timestamp": "2026-06-10T06:41:44.101485503Z"
+    }
+  ],
+  "files": {
+    "/etc/localtime": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-10T06:41:44.105383416Z",
+      "last_seen": "2026-06-10T06:41:44.105383416Z",
+      "count": 1
+    },
+    "/opt/hostedtoolcache/go/1.23.5/x64/lib/time/zoneinfo.zip": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-10T06:41:44.105387624Z",
+      "last_seen": "2026-06-10T06:41:44.105387624Z",
+      "count": 1
+    },
+    "/whoami": {
+      "source": "direct",
+      "access_modes": [
+        "x",
+        "m"
+      ],
+      "first_seen": "2026-06-10T06:41:44.103809525Z",
+      "last_seen": "2026-06-10T06:41:44.104216529Z",
+      "count": 1
+    }
+  }
+}

@@ -10,7 +10,7 @@ import (
 // and file entries.
 func makeManifest(start, end time.Time, files map[string]FileEntry) *Manifest {
 	return &Manifest{
-		SchemaVersion: "1",
+		SchemaVersion: SchemaVersion,
 		ContainerID:   "test",
 		ProfileStart:  start,
 		ProfileEnd:    end,

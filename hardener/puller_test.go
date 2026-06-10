@@ -22,7 +22,7 @@ func TestExtractFromImage_NginxAlpine(t *testing.T) {
 	destDir := t.TempDir()
 
 	m := &manifest.Manifest{
-		SchemaVersion: "1",
+		SchemaVersion: manifest.SchemaVersion,
 		ContainerID:   "test",
 		ProfileStart:  time.Now(),
 		ProfileEnd:    time.Now(),

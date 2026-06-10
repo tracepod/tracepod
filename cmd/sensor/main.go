@@ -51,10 +51,10 @@ import (
 	"time"
 
 	"github.com/tracepod/tracepod/internal/container"
-	"github.com/tracepod/tracepod/manifest"
 	"github.com/tracepod/tracepod/internal/probe"
 	"github.com/tracepod/tracepod/internal/ringbuf"
 	"github.com/tracepod/tracepod/internal/sensor"
+	"github.com/tracepod/tracepod/manifest"
 )
 
 // version and commit are set at build time via -ldflags:
@@ -66,12 +66,12 @@ var (
 )
 
 func main() {
-	cgroupPath    := flag.String("cgroup-path", "", "manually allow this cgroup path (debug)")
-	profileDir    := flag.String("profile-dir", "profiles", "directory for manifest output")
+	cgroupPath := flag.String("cgroup-path", "", "manually allow this cgroup path (debug)")
+	profileDir := flag.String("profile-dir", "profiles", "directory for manifest output")
 	controllerURL := flag.String("controller-url", "", "TracePod controller URL for K8s mode (e.g. http://tracepod-controller.tracepod.svc:8080)")
-	nodeName      := flag.String("node-name", "", "node name (set via Downward API in DaemonSet)")
-	showVersion   := flag.Bool("version", false, "print version and exit")
-	verbose       := flag.Bool("verbose", false, "print every file-open event to stderr (noisy; for debugging)")
+	nodeName := flag.String("node-name", "", "node name (set via Downward API in DaemonSet)")
+	showVersion := flag.Bool("version", false, "print version and exit")
+	verbose := flag.Bool("verbose", false, "print every file-open event to stderr (noisy; for debugging)")
 	flag.Parse()
 
 	if *showVersion {
@@ -138,11 +138,11 @@ func main() {
 // cgroupRouter maps live cgroup IDs to their per-container aggregators and
 // routes ring buffer events to the correct aggregator.
 type cgroupRouter struct {
-	mu           sync.RWMutex
-	aggs         map[uint64]*manifest.Aggregator // cgroupID → aggregator
-	ctrToCgroup  map[string]uint64               // containerID → cgroupID (for onStop lookup)
-	cgroupFSPath map[uint64]string               // cgroupID → cgroup filesystem path
-	denyList     *manifest.DenyList
+	mu            sync.RWMutex
+	aggs          map[uint64]*manifest.Aggregator // cgroupID → aggregator
+	ctrToCgroup   map[string]uint64               // containerID → cgroupID (for onStop lookup)
+	cgroupFSPath  map[uint64]string               // cgroupID → cgroup filesystem path
+	denyList      *manifest.DenyList
 	profileDir    string
 	controllerURL string
 	nodeName      string
@@ -165,14 +165,20 @@ func newRouter(profileDir, controllerURL, nodeName string, resolver sensor.Workl
 }
 
 // onContainerStart is called by the NRI plugin when a container's cgroup ID
-// is resolved. A new Aggregator is created for the container.
-func (r *cgroupRouter) onContainerStart(containerID string, cgroupID uint64, cgroupFSPath string) {
+// is resolved. A new Aggregator is created for the container, seeded with the
+// R2 attach evidence (attach time + whether a process was already running).
+func (r *cgroupRouter) onContainerStart(info container.StartInfo) {
+	agg := manifest.NewAggregator(info.ContainerID, "")
+	agg.RecordAttach(info.AttachTime, info.ProcessAlreadyRunning)
+
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.aggs[cgroupID] = manifest.NewAggregator(containerID, "")
-	r.ctrToCgroup[containerID] = cgroupID
-	r.cgroupFSPath[cgroupID] = cgroupFSPath
-	fmt.Fprintf(os.Stderr, "sensor: tracking  container=%s cgroup=%d\n", containerID[:12], cgroupID)
+	r.aggs[info.CgroupID] = agg
+	r.ctrToCgroup[info.ContainerID] = info.CgroupID
+	r.cgroupFSPath[info.CgroupID] = info.CgroupFSPath
+	r.mu.Unlock()
+
+	fmt.Fprintf(os.Stderr, "sensor: tracking  container=%s cgroup=%d startObserved=%t\n",
+		info.ContainerID[:12], info.CgroupID, !info.ProcessAlreadyRunning)
 }
 
 // onContainerStop is called by the NRI plugin when a container stops.

@@ -160,6 +160,25 @@ with `mkdir() failed (2: No such file or directory)` or similar), not silently d
 The failure is loud and immediate, not subtle — and it is caught by `nginx -t` before
 the container ever serves traffic.
 
+### Now machine-detectable (schema v2)
+
+The race still exists — nothing below eliminates it — but as of profile schema v2
+it is **machine-detectable per container**. The sensor records its cgroup attach
+time and the container's first observed exec, and emits a
+`coverage.process_start_observed` marker in the profile. It is `true` only when
+the sensor attached via the NRI `StartContainer` hook (before the runtime started
+the workload), observed an exec, and its recorded attach time strictly precedes
+that exec. Any uncertainty resolves to `false`. A container the sensor adopts
+after it was already running, via NRI `Synchronize` (the missed-start case), is
+always marked `false`.
+
+Downstream coverage scoring uses this marker to treat startup code paths as
+systematically missing when it is `false`, instead of silently assuming full
+coverage. See [profile-schema/README.md](profile-schema/README.md#coverage-r2--process-start-coverage-marker)
+for the exact semantics and the deliberate toward-`false` bias. The marker
+reports the gap; it does not close it — the workarounds below remain the way to
+recover the missed paths.
+
 ### Current workaround
 
 **Step 1:** After the container starts, trigger `nginx -s reload`. This causes nginx to

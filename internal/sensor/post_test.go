@@ -14,12 +14,13 @@ import (
 
 func emptyManifest() manifest.Manifest {
 	return manifest.Manifest{
-		SchemaVersion: "1",
-		ContainerID:   "ctr1",
-		ImageRef:      "nginx:latest",
-		ProfileStart:  time.Now().UTC(),
-		ProfileEnd:    time.Now().UTC(),
-		Files:         map[string]manifest.FileEntry{},
+		SchemaVersion:   manifest.SchemaVersion,
+		ContainerID:     "ctr1",
+		ImageRef:        "nginx:latest",
+		ProfileStart:    time.Now().UTC(),
+		ProfileEnd:      time.Now().UTC(),
+		ContainerStarts: []manifest.StartEvent{},
+		Files:           map[string]manifest.FileEntry{},
 	}
 }
 

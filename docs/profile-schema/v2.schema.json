@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tracepod.com/profile-schema/v2.schema.json",
+  "title": "Tracepod profile document (schema v2)",
+  "description": "The profile JSON the sensor writes to profiles/<container-id>/files.json (standalone mode) or POSTs to the controller (DaemonSet mode). One document per container profiling window. See docs/profile-schema/README.md for the versioning policy and field semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "container_id",
+    "profile_start",
+    "profile_end",
+    "coverage",
+    "container_starts",
+    "files"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Profile schema version. Always the integer 2 for documents matching this schema. A legacy pre-versioned profile carries the string \"1\" (or no field) and must be treated as v1.",
+      "const": 2
+    },
+    "container_id": {
+      "description": "Runtime container ID the sensor profiled.",
+      "type": "string"
+    },
+    "image_ref": {
+      "description": "OCI image reference of the profiled container. Omitted in standalone mode when no image ref was resolved.",
+      "type": "string"
+    },
+    "profile_start": {
+      "description": "UTC RFC 3339 timestamp when the aggregator was created (first witnessed start).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "profile_end": {
+      "description": "UTC RFC 3339 timestamp when the profile was snapshotted (container stop).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "coverage": {
+      "description": "Per-container coverage markers (R2). The sensor records raw signals; it does not score them.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["process_start_observed", "attach_time"],
+      "properties": {
+        "process_start_observed": {
+          "description": "True only when the sensor can demonstrate it observed the container's main process from its first exec (its cgroup attachment won the NRI startup race). Any uncertainty resolves to false. A false value means startup code paths are systematically missing from this profile.",
+          "type": "boolean"
+        },
+        "attach_time": {
+          "description": "UTC RFC 3339 timestamp when the sensor added the container's cgroup to the BPF allowlist — the earliest instant any event could be observed. The zero value (0001-01-01T00:00:00Z) means no attach was recorded.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "first_exec_time": {
+          "description": "UTC RFC 3339 timestamp of the first exec event observed for the container. Omitted when no exec was observed during the window.",
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "container_starts": {
+      "description": "Container starts the sensor witnessed during the window (R3), in observation order. A consumer counts full restarts within a profile as length-1, summing across the profiles emitted for a workload for cross-window totals.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["container_id", "timestamp"],
+        "properties": {
+          "container_id": {
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "UTC RFC 3339 timestamp of the witnessed start.",
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "files": {
+      "description": "Observed files, keyed by absolute path.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "access_modes", "first_seen", "last_seen", "count"],
+        "properties": {
+          "source": {
+            "description": "How the file entered the manifest. Load-bearing for confidence scoring and audit trails.",
+            "enum": [
+              "direct",
+              "inferred-elf",
+              "directory-inclusion",
+              "manual",
+              "ensure-dir",
+              "ensure-file"
+            ]
+          },
+          "access_modes": {
+            "description": "Observed access modes: r (read), w (write), x (execute), l (link), m (mmap PROT_EXEC).",
+            "type": "array",
+            "items": {
+              "enum": ["r", "w", "x", "l", "m"]
+            }
+          },
+          "first_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "count": {
+            "description": "Number of observed opens. 0 for inferred-elf and directory-inclusion entries.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "inferred_from": {
+            "description": "source=inferred-elf: the ELF binary that required this shared object.",
+            "type": "string"
+          },
+          "included_because": {
+            "description": "source=directory-inclusion / manual: the reason the path was included.",
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

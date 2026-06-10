@@ -709,7 +709,7 @@ func nginxMinimalManifest() *manifest.Manifest {
 	now := time.Now()
 	start := now.Add(-15 * time.Minute) // long-enough window to avoid short-window penalty
 	return &manifest.Manifest{
-		SchemaVersion: "1",
+		SchemaVersion: manifest.SchemaVersion,
 		ContainerID:   "test-build",
 		ProfileStart:  start,
 		ProfileEnd:    now,

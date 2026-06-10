@@ -1,0 +1,17 @@
+{
+  "schema_version": 2,
+  "container_id": "0068b06fc40beb0effee11c33159c9627e0339291fec2ed93b17e7c5e2f54797",
+  "profile_start": "2026-06-10T06:41:41.211841127Z",
+  "profile_end": "2026-06-10T06:43:01.158751062Z",
+  "coverage": {
+    "process_start_observed": false,
+    "attach_time": "2026-06-10T06:41:41.211825877Z"
+  },
+  "container_starts": [
+    {
+      "container_id": "0068b06fc40beb0effee11c33159c9627e0339291fec2ed93b17e7c5e2f54797",
+      "timestamp": "2026-06-10T06:41:41.211841127Z"
+    }
+  ],
+  "files": {}
+}

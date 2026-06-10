@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tracepod.com/profile-schema/v1.schema.json",
+  "title": "Tracepod profile document (schema v1 — LEGACY)",
+  "description": "LEGACY, retained for reference only. The sensor no longer emits v1. v1 carried a STRING schema_version (\"1\"), no coverage markers, and no container-start records. Consumers should treat any profile matching this shape as legacy and assume process-start coverage and restart counts are unknown. See docs/profile-schema/README.md.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "container_id",
+    "profile_start",
+    "profile_end",
+    "files"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Legacy string version. v1 documents carry the string \"1\".",
+      "const": "1"
+    },
+    "container_id": {
+      "type": "string"
+    },
+    "image_ref": {
+      "type": "string"
+    },
+    "profile_start": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "profile_end": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["source", "access_modes", "first_seen", "last_seen", "count"],
+        "properties": {
+          "source": {
+            "enum": [
+              "direct",
+              "inferred-elf",
+              "directory-inclusion",
+              "manual",
+              "ensure-dir",
+              "ensure-file"
+            ]
+          },
+          "access_modes": {
+            "type": "array",
+            "items": {
+              "enum": ["r", "w", "x", "l", "m"]
+            }
+          },
+          "first_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "inferred_from": {
+            "type": "string"
+          },
+          "included_because": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

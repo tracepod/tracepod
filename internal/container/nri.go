@@ -8,10 +8,26 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/containerd/nri/pkg/api"
 	"github.com/containerd/nri/pkg/stub"
 )
+
+// StartInfo carries the per-container attach evidence the onStart callback needs
+// for the R2 process-start coverage marker. AttachTime is when the sensor added
+// the container's cgroup to the BPF allowlist; ProcessAlreadyRunning reports
+// whether a process was already present in the cgroup at that moment (its first
+// exec was therefore dropped in-kernel before allowlisting — the startup race
+// was lost). Containers adopted via Synchronize (already running when the sensor
+// started) always carry ProcessAlreadyRunning=true.
+type StartInfo struct {
+	ContainerID           string
+	CgroupID              uint64
+	CgroupFSPath          string
+	AttachTime            time.Time
+	ProcessAlreadyRunning bool
+}
 
 // PodMeta contains the Kubernetes pod metadata available from the NRI PodSandbox
 // at StopContainer time. Fields are empty strings/nil when NRI provides no pod
@@ -55,10 +71,9 @@ type Plugin struct {
 	allower CgroupAllower
 	nri     stub.Stub
 
-	// onStart is called after cgroup ID is resolved and AllowCgroup succeeds.
-	// containerID is the NRI container ID; cgroupID is the kernel cgroup inode;
-	// cgroupFSPath is the absolute path to the cgroup directory under /sys/fs/cgroup.
-	onStart func(containerID string, cgroupID uint64, cgroupFSPath string)
+	// onStart is called after cgroup ID is resolved and AllowCgroup succeeds,
+	// with the attach evidence for the R2 coverage marker (see StartInfo).
+	onStart func(StartInfo)
 
 	// onStop is called after DenyCgroup. containerID and cgroupID match those
 	// provided to the corresponding onStart call. pod carries the Kubernetes
@@ -75,7 +90,7 @@ type Plugin struct {
 // onStart is called after a container's cgroup ID is resolved; onStop is called
 // when a container stops with pod metadata from the NRI PodSandbox. Either
 // callback may be nil.
-func NewPlugin(allower CgroupAllower, onStart func(containerID string, cgroupID uint64, cgroupFSPath string), onStop func(containerID string, cgroupID uint64, pod PodMeta)) *Plugin {
+func NewPlugin(allower CgroupAllower, onStart func(StartInfo), onStop func(containerID string, cgroupID uint64, pod PodMeta)) *Plugin {
 	return &Plugin{
 		allower: allower,
 		onStart: onStart,
@@ -155,29 +170,104 @@ func (p *Plugin) StartContainer(
 		return nil
 	}
 
-	cgPath = resolveCgroupPath(cgPath)
+	// Normal start: the sensor attaches before the runtime signals the workload
+	// to exec its entrypoint, so it wins the startup race (alreadyRunning=false).
+	// resolveCgroupPath turns the raw NRI cgroupsPath (which may be in systemd
+	// slice form) into an absolute /sys/fs/cgroup path.
+	p.adopt(ctr, resolveCgroupPath(cgPath), false)
+	return nil
+}
 
+// adopt resolves the cgroup path to an ID, allowlists it, and fires onStart with
+// the R2 attach evidence. alreadyRunning is the load-bearing signal for the
+// process-start marker and is determined by HOW the sensor learned of the
+// container:
+//
+//   - StartContainer hook (alreadyRunning=false): the sensor attaches at the
+//     container's start, before the runtime signals the workload to exec its
+//     entrypoint. The cgroup may already hold the pre-exec runc-init process,
+//     but the workload's first (entrypoint) exec has NOT happened yet, so the
+//     sensor will observe it — the race is won.
+//   - Synchronize (alreadyRunning=true): the container was already running when
+//     the sensor registered, so its first exec was emitted (and dropped
+//     in-kernel) before the sensor attached — the race is lost.
+//
+// We deliberately do NOT infer alreadyRunning from cgroup.procs: at the
+// StartContainer hook the runc-init process is already in the cgroup even though
+// the entrypoint has not exec'd, so a cgroup.procs probe would wrongly classify
+// every fresh start as a lost race. cgPath must already be resolved to an
+// absolute /sys/fs/cgroup path.
+func (p *Plugin) adopt(ctr *api.Container, cgPath string, alreadyRunning bool) {
 	id, err := CgroupIDFromPath(cgPath)
 	if err != nil {
 		// Log and continue — don't block the container from starting.
-		fmt.Fprintf(os.Stderr, "sensor: StartContainer id=%s — CgroupIDFromPath(%q) failed: %v\n", ctr.GetId(), cgPath, err)
-		return nil
+		fmt.Fprintf(os.Stderr, "sensor: adopt id=%s — CgroupIDFromPath(%q) failed: %v\n", ctr.GetId(), cgPath, err)
+		return
 	}
-
-	fmt.Fprintf(os.Stderr, "sensor: StartContainer id=%s cgroupID=%d — allowing\n", ctr.GetId(), id)
 
 	p.mu.Lock()
 	p.ids[ctr.GetId()] = id
 	p.mu.Unlock()
 
+	attachTime := time.Now().UTC()
+
 	if err := p.allower.AllowCgroup(id); err != nil {
-		fmt.Fprintf(os.Stderr, "sensor: StartContainer id=%s — AllowCgroup(%d) failed: %v\n", ctr.GetId(), id, err)
+		fmt.Fprintf(os.Stderr, "sensor: adopt id=%s — AllowCgroup(%d) failed: %v\n", ctr.GetId(), id, err)
 	}
 
+	fmt.Fprintf(os.Stderr, "sensor: adopt id=%s cgroupID=%d alreadyRunning=%t — allowed\n",
+		ctr.GetId(), id, alreadyRunning)
+
 	if p.onStart != nil {
-		p.onStart(ctr.GetId(), id, cgPath)
+		p.onStart(StartInfo{
+			ContainerID:           ctr.GetId(),
+			CgroupID:              id,
+			CgroupFSPath:          cgPath,
+			AttachTime:            attachTime,
+			ProcessAlreadyRunning: alreadyRunning,
+		})
 	}
-	return nil
+}
+
+// Synchronize is invoked by NRI when the plugin first registers. It receives the
+// pods and containers already running on the node. The sensor adopts each
+// running container so it produces a profile, but marks every adopted container
+// as having lost the startup race (ProcessAlreadyRunning=true) — by definition
+// the sensor attached after these containers started, so their first exec was
+// never observed. This is the R2 "missed-start" case.
+func (p *Plugin) Synchronize(
+	_ context.Context,
+	pods []*api.PodSandbox,
+	ctrs []*api.Container,
+) ([]*api.ContainerUpdate, error) {
+	podByID := make(map[string]*api.PodSandbox, len(pods))
+	for _, pod := range pods {
+		podByID[pod.GetId()] = pod
+	}
+
+	for _, ctr := range ctrs {
+		if ctr.GetState() != api.ContainerState_CONTAINER_RUNNING {
+			continue
+		}
+		cgPath := ctr.GetLinux().GetCgroupsPath()
+		if cgPath == "" {
+			continue
+		}
+		p.mu.Lock()
+		p.paths[ctr.GetId()] = cgPath
+		if pod := podByID[ctr.GetPodSandboxId()]; pod != nil && pod.GetNamespace() != "" {
+			p.podMeta[ctr.GetId()] = PodMeta{
+				Namespace:   pod.GetNamespace(),
+				Name:        pod.GetName(),
+				Annotations: pod.GetAnnotations(),
+			}
+		}
+		p.mu.Unlock()
+
+		fmt.Fprintf(os.Stderr, "sensor: Synchronize adopting running id=%s\n", ctr.GetId())
+		p.adopt(ctr, resolveCgroupPath(cgPath), true)
+	}
+	return nil, nil
 }
 
 // resolveCgroupPath converts a raw NRI cgroupsPath to an absolute filesystem

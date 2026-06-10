@@ -1,7 +1,7 @@
 BPF_CLANG  := clang-18
 BPF_TARGET ?= $(shell go env GOARCH)
 
-.PHONY: all build build-harden build-tracepod clean generate test lint fmt helm-lint
+.PHONY: all build build-harden build-tracepod clean generate test lint fmt helm-lint record-fixtures
 
 all: build
 
@@ -64,3 +64,9 @@ e2e:
 ## Requires: Docker, kind, kubectl, helm, go — and sensor binary pre-built.
 e2e-ci:
 	bash hack/e2e/run-e2e.sh
+
+## Record profile fixtures (testdata/profile-fixtures/v<N>/) from a live sensor
+## run against representative workloads. Requires: limactl + 'limactl start k8s-dev'.
+## Fixtures are recorded artifacts — never hand-edit them.
+record-fixtures:
+	limactl shell k8s-dev -- bash -c "cd $(shell pwd) && bash hack/record-profile-fixtures.sh"

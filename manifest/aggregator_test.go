@@ -112,8 +112,8 @@ func TestAggregator_Snapshot_containsMetadata(t *testing.T) {
 	a := manifest.NewAggregator("abc123", "nginx:1.25")
 	m := a.Snapshot()
 
-	if m.SchemaVersion != "1" {
-		t.Errorf("schema_version: want %q, got %q", "1", m.SchemaVersion)
+	if m.SchemaVersion != manifest.SchemaVersion {
+		t.Errorf("schema_version: want %d, got %d", manifest.SchemaVersion, m.SchemaVersion)
 	}
 	if m.ContainerID != "abc123" {
 		t.Errorf("container_id: want %q, got %q", "abc123", m.ContainerID)
@@ -159,7 +159,7 @@ func TestAggregator_WriteJSON_validJSON(t *testing.T) {
 
 	s := buf.String()
 	for _, want := range []string{
-		`"schema_version": "1"`,
+		`"schema_version": 2`,
 		`"container_id": "ctr1"`,
 		`"image_ref": "redis:7"`,
 		`"/usr/bin/redis-server"`,
