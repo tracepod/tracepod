@@ -128,7 +128,7 @@ func TestResolveELFDependencies_NginxAlpine(t *testing.T) {
 	// Seed manifest with just the nginx binary so ExtractFromImage only fetches it.
 	now := time.Now()
 	m := &manifest.Manifest{
-		SchemaVersion: "1",
+		SchemaVersion: manifest.SchemaVersion,
 		ContainerID:   "test",
 		ProfileStart:  now,
 		ProfileEnd:    now,
