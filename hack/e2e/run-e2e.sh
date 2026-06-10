@@ -102,6 +102,11 @@ fi
 
 # ── Phase 2: kind cluster ───────────────────────────────────────────────────────
 info "Phase 2: creating kind cluster '${CLUSTER_NAME}'"
+# Start from a clean profile dir. The sensor writes profiles as root via the
+# node hostPath, and this dir persists across runs, so stale profiles from an
+# earlier run (possibly an older schema version) would otherwise be picked up by
+# the `find | head -1` below. Remove with sudo since the files are root-owned.
+sudo rm -rf "${PROFILE_DIR}" 2>/dev/null || rm -rf "${PROFILE_DIR}" 2>/dev/null || true
 mkdir -p "${PROFILE_DIR}"
 
 if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
@@ -170,6 +175,33 @@ info "Manifest size: ${MANIFEST_SIZE} bytes"
 if [ "$MANIFEST_SIZE" -lt 100 ]; then
   fail "Manifest looks empty (< 100 bytes) — sensor may not have recorded any events"
   exit 1
+fi
+
+# ── Phase 5b: schema v2 assertions ─────────────────────────────────────────────
+# The recorded run must carry the current integer schema_version and the v2
+# coverage markers (R2/R3). nginx is started AFTER the sensor here, so the
+# process-start marker may be true or false depending on the startup race — we
+# assert the field is present and boolean, not a specific value. The dedicated
+# missed-start (always-false) and restart (start-count) scenarios are exercised
+# by hack/record-profile-fixtures.sh (fx-restart) and the manifest unit tests.
+if command -v jq >/dev/null 2>&1; then
+  info "Phase 5b: asserting schema v2 shape on ${MANIFEST}"
+  VER=$(jq -r '.schema_version' "$MANIFEST")
+  if [ "$VER" != "2" ]; then
+    fail "schema_version=${VER}, want integer 2"; exit 1
+  fi
+  PSO=$(jq -r '.coverage.process_start_observed' "$MANIFEST")
+  case "$PSO" in
+    true|false) info "coverage.process_start_observed=${PSO}" ;;
+    *) fail "coverage.process_start_observed must be boolean, got '${PSO}'"; exit 1 ;;
+  esac
+  STARTS=$(jq -r '.container_starts | length' "$MANIFEST")
+  if [ "${STARTS:-0}" -lt 1 ]; then
+    fail "container_starts must have >=1 entry, got ${STARTS}"; exit 1
+  fi
+  info "container_starts entries: ${STARTS}"
+else
+  warn "jq not found — skipping schema v2 shape assertions"
 fi
 
 # ── Phase 6: harden build ──────────────────────────────────────────────────────

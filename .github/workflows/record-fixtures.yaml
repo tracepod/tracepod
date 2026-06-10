@@ -1,0 +1,78 @@
+name: Record profile fixtures
+
+# Manually triggered only. Re-records testdata/profile-fixtures/ from a live
+# sensor run and opens a PR. Fixtures change deliberately, never implicitly — so
+# this never runs on push/PR, only on demand.
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why re-record (e.g. schema bump, image refresh)"
+        required: false
+        default: "manual re-record"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  record:
+    name: record fixtures (amd64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # ── BPF toolchain (amd64 objects are not committed) ──────────────────────
+      - name: Install BPF build deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends clang-18 llvm-18 libbpf-dev jq
+      - name: Install bpftool
+        run: |
+          curl -fsSL \
+            "https://github.com/libbpf/bpftool/releases/download/v7.7.0/bpftool-v7.7.0-amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin
+          sudo chmod +x /usr/local/bin/bpftool
+
+      - name: Generate BPF objects (amd64)
+        run: make generate
+      - name: Build sensor binary (amd64)
+        run: CGO_ENABLED=0 go build -o sensor ./cmd/sensor
+      - name: Build sensor image
+        run: docker build -f Dockerfile.sensor.dev -t tracepod-sensor:fixtures .
+
+      - name: Install kind v0.27.0
+        run: |
+          curl -fsSL -o /tmp/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          chmod +x /tmp/kind && sudo mv /tmp/kind /usr/local/bin/kind
+      - uses: azure/setup-helm@v4
+
+      - name: Record fixtures
+        env:
+          SENSOR_IMAGE: tracepod-sensor:fixtures
+        run: bash hack/record-profile-fixtures.sh
+
+      - name: Validate recorded fixtures against schema
+        run: go test ./manifest/ -run 'TestProfileFixtures_conform|TestSchemaConformance|TestSchemaDrift' -v
+
+      - name: Open PR with re-recorded fixtures
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/record-profile-fixtures
+          title: "chore: re-record profile fixtures"
+          commit-message: "chore(fixtures): re-record profile fixtures"
+          body: |
+            Automated re-record of `testdata/profile-fixtures/`.
+
+            Reason: ${{ github.event.inputs.reason }}
+
+            Fixtures are recorded artifacts captured verbatim from a live sensor
+            run — review the diff, do not hand-edit. Validated against the
+            committed JSON Schema in this workflow.
+          add-paths: testdata/profile-fixtures/**

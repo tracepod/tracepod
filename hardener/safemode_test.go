@@ -13,7 +13,7 @@ import (
 func makeTestManifest() *manifest.Manifest {
 	now := time.Now()
 	return &manifest.Manifest{
-		SchemaVersion: "1",
+		SchemaVersion: manifest.SchemaVersion,
 		ContainerID:   "test",
 		ProfileStart:  now,
 		ProfileEnd:    now,

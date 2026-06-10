@@ -1,0 +1,88 @@
+{
+  "schema_version": 2,
+  "container_id": "078acac238a842acdd5c5959dfeb7378b28edc04030590b82a881efe36d692c9",
+  "profile_start": "2026-06-10T06:41:46.648070353Z",
+  "profile_end": "2026-06-10T06:41:50.654060752Z",
+  "coverage": {
+    "process_start_observed": true,
+    "attach_time": "2026-06-10T06:41:46.648051978Z",
+    "first_exec_time": "2026-06-10T06:41:46.65120255Z"
+  },
+  "container_starts": [
+    {
+      "container_id": "078acac238a842acdd5c5959dfeb7378b28edc04030590b82a881efe36d692c9",
+      "timestamp": "2026-06-10T06:41:46.648070353Z"
+    }
+  ],
+  "files": {
+    "/bin/sh": {
+      "source": "direct",
+      "access_modes": [
+        "x",
+        "m"
+      ],
+      "first_seen": "2026-06-10T06:41:46.65120255Z",
+      "last_seen": "2026-06-10T06:41:46.651497428Z",
+      "count": 1
+    },
+    "/etc/ld.so.cache": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-10T06:41:46.651605762Z",
+      "last_seen": "2026-06-10T06:41:46.651605762Z",
+      "count": 1
+    },
+    "/lib/aarch64-linux-gnu/libm.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-10T06:41:46.651608804Z",
+      "last_seen": "2026-06-10T06:41:46.651720764Z",
+      "count": 1
+    },
+    "/lib/libc.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-10T06:41:46.651818431Z",
+      "last_seen": "2026-06-10T06:41:46.651822681Z",
+      "count": 1
+    },
+    "/lib/libm.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-10T06:41:46.651613763Z",
+      "last_seen": "2026-06-10T06:41:46.651720764Z",
+      "count": 1
+    },
+    "/lib/libresolv.so.2": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-10T06:41:46.651723555Z",
+      "last_seen": "2026-06-10T06:41:46.651815848Z",
+      "count": 1
+    },
+    "/usr/lib/aarch64-linux-gnu/libm.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-10T06:41:46.651611513Z",
+      "last_seen": "2026-06-10T06:41:46.651720764Z",
+      "count": 1
+    }
+  }
+}

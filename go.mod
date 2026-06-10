@@ -8,6 +8,7 @@ require (
 	github.com/cilium/ebpf v0.21.0
 	github.com/containerd/nri v0.8.0
 	github.com/google/go-containerregistry v0.20.6
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	k8s.io/api v0.35.4
 	k8s.io/apimachinery v0.35.4
 	k8s.io/client-go v0.35.4
