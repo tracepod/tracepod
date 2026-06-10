@@ -6,6 +6,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-10
+
 ### Added
 
 - **Profile schema v2** with sensor coverage markers for downstream coverage
@@ -37,4 +39,5 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 - `schema_version` changed type from string (`"1"`) to integer (`2`). Consumers
   must treat a string `schema_version` (or its absence) as a legacy v1 profile.
 
-[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/tracepod/tracepod/compare/v0.1.0...v0.1.1
