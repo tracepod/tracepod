@@ -47,6 +47,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -72,6 +73,7 @@ func main() {
 	nodeName := flag.String("node-name", "", "node name (set via Downward API in DaemonSet)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	verbose := flag.Bool("verbose", false, "print every file-open event to stderr (noisy; for debugging)")
+	ringbufBytes := flag.Uint("ringbuf-bytes", 0, "override events ring-buffer size in bytes (0=default 256KB; power of two, page-multiple). Test-only: a tiny value forces event loss for the induced-loss schema-v3 fixture")
 	flag.Parse()
 
 	if *showVersion {
@@ -79,9 +81,12 @@ func main() {
 		os.Exit(0)
 	}
 
-	p, err := probe.Open()
+	p, err := probe.OpenWith(probe.Options{RingbufBytes: uint32(*ringbufBytes)})
 	if err != nil {
 		log.Fatalf("open probe: %v", err)
+	}
+	if *ringbufBytes != 0 {
+		fmt.Fprintf(os.Stderr, "sensor: events ring buffer overridden to %d bytes (induced-loss test mode)\n", *ringbufBytes)
 	}
 
 	// --cgroup-path: manually allow a single cgroup, bypassing NRI.
@@ -107,7 +112,14 @@ func main() {
 	}
 
 	// router dispatches ring buffer events to the right per-container aggregator.
-	router := newRouter(*profileDir, *controllerURL, *nodeName, resolver, *verbose)
+	router := newRouter(p, *profileDir, *controllerURL, *nodeName, resolver, *verbose)
+
+	// The consumer must exist before the NRI plugin starts: plugin.Start() runs
+	// the Synchronize hook, which adopts already-running containers and creates
+	// their aggregators — each aggregator captures an event-loss baseline via
+	// router.ReadLoss(), which reads the consumer's decode counter. Wire it now.
+	c := ringbuf.New(p.Reader(), router.handle)
+	router.consumer = c
 
 	// Connect the NRI plugin so containerd can push container lifecycle events.
 	// If NRI is unavailable we warn rather than fatal — the sensor still runs
@@ -129,7 +141,6 @@ func main() {
 		p.Close()
 	}()
 
-	c := ringbuf.New(p.Reader(), router.handle)
 	if err := c.Run(); err != nil {
 		log.Fatalf("consumer: %v", err)
 	}
@@ -137,6 +148,11 @@ func main() {
 
 // cgroupRouter maps live cgroup IDs to their per-container aggregators and
 // routes ring buffer events to the correct aggregator.
+//
+// It also implements manifest.LossReader: it owns the userspace event-loss
+// counter (untrackedCgroup) and reads the BPF-side (probe) and decode-side
+// (consumer) counters, so every aggregator can record a per-window event-loss
+// delta (schema v3).
 type cgroupRouter struct {
 	mu            sync.RWMutex
 	aggs          map[uint64]*manifest.Aggregator // cgroupID → aggregator
@@ -148,9 +164,14 @@ type cgroupRouter struct {
 	nodeName      string
 	resolver      sensor.WorkloadResolver // nil in standalone mode
 	verbose       bool
+
+	// Event-loss instrumentation (schema v3).
+	probe           *probe.Probe      // BPF-side counters (reserve/read failures)
+	consumer        *ringbuf.Consumer // decode_failed counter; set in main before plugin.Start
+	untrackedCgroup atomic.Uint64     // events for an allowed cgroup with no live aggregator
 }
 
-func newRouter(profileDir, controllerURL, nodeName string, resolver sensor.WorkloadResolver, verbose bool) *cgroupRouter {
+func newRouter(p *probe.Probe, profileDir, controllerURL, nodeName string, resolver sensor.WorkloadResolver, verbose bool) *cgroupRouter {
 	return &cgroupRouter{
 		aggs:          make(map[uint64]*manifest.Aggregator),
 		ctrToCgroup:   make(map[string]uint64),
@@ -161,7 +182,37 @@ func newRouter(profileDir, controllerURL, nodeName string, resolver sensor.Workl
 		nodeName:      nodeName,
 		resolver:      resolver,
 		verbose:       verbose,
+		probe:         p,
 	}
+}
+
+// ReadLoss reports the sensor's cumulative, process-wide event-loss counters
+// (manifest.LossReader). It sums the in-kernel per-CPU counters (reserve/read
+// failures), the consumer's decode failures, and the router's untracked-cgroup
+// drops. If the in-kernel counters cannot be read, their stages are reported
+// not_instrumented rather than as a false zero (schema-v3 zero-is-a-claim rule).
+func (r *cgroupRouter) ReadLoss() manifest.LossReport {
+	by := make(map[string]uint64, len(manifest.LossStages))
+	var notInstrumented []string
+
+	if bpf, err := r.probe.LossStats(); err == nil {
+		for k, v := range bpf {
+			by[k] = v
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "sensor: event_loss BPF counters unreadable (%v) — reporting not_instrumented\n", err)
+		notInstrumented = append(notInstrumented, manifest.LossStageBPFReserveFailed)
+	}
+
+	if r.consumer != nil {
+		by[manifest.LossStageDecodeFailed] = r.consumer.DecodeFailures()
+	} else {
+		notInstrumented = append(notInstrumented, manifest.LossStageDecodeFailed)
+	}
+
+	by[manifest.LossStageUntrackedCgroup] = r.untrackedCgroup.Load()
+
+	return manifest.LossReport{ByStage: by, NotInstrumented: notInstrumented}
 }
 
 // onContainerStart is called by the NRI plugin when a container's cgroup ID
@@ -170,6 +221,9 @@ func newRouter(profileDir, controllerURL, nodeName string, resolver sensor.Workl
 func (r *cgroupRouter) onContainerStart(info container.StartInfo) {
 	agg := manifest.NewAggregator(info.ContainerID, "")
 	agg.RecordAttach(info.AttachTime, info.ProcessAlreadyRunning)
+	// Capture the event-loss baseline at window start so the profile reports loss
+	// during THIS window (schema v3). The router is the process-wide LossReader.
+	agg.SetLossReader(r)
 
 	r.mu.Lock()
 	r.aggs[info.CgroupID] = agg
@@ -256,6 +310,16 @@ func (r *cgroupRouter) onContainerStop(containerID string, cgroupID uint64, pod 
 // handle is called by the ring buffer consumer for every decoded event.
 // It dispatches to the appropriate handler based on the event type.
 func (r *cgroupRouter) handle(e ringbuf.Event) {
+	// The kernel only emits events for allowed cgroups, but the BPF allowlist and
+	// the userspace aggregator map can briefly disagree (the race window at
+	// container start before onContainerStart registers the aggregator, and
+	// in-flight events after stop). An event for a cgroup with no live aggregator
+	// is a lost observation — count it (untracked_cgroup, schema v3) before any
+	// path filtering, so deliberate denylist drops are NOT counted as loss.
+	if r.aggFor(e.CgroupID) == nil {
+		r.untrackedCgroup.Add(1)
+		return
+	}
 	switch e.Type {
 	case ringbuf.EventTypeOpenat:
 		r.handleOpenat(e)

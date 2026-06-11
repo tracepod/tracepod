@@ -1,0 +1,242 @@
+{
+  "schema_version": 3,
+  "container_id": "0594aec1cbab8937a47c30297cf6cfe896fba8446f516a32c39a92297e2ba9d4",
+  "profile_start": "2026-06-11T06:22:46.93742041Z",
+  "profile_end": "2026-06-11T06:23:47.912690541Z",
+  "coverage": {
+    "process_start_observed": true,
+    "attach_time": "2026-06-11T06:22:46.937419744Z",
+    "first_exec_time": "2026-06-11T06:22:46.939652438Z"
+  },
+  "container_starts": [
+    {
+      "container_id": "0594aec1cbab8937a47c30297cf6cfe896fba8446f516a32c39a92297e2ba9d4",
+      "timestamp": "2026-06-11T06:22:46.93742041Z"
+    }
+  ],
+  "event_loss": {
+    "total": 1227188,
+    "by_stage": {
+      "bpf_reserve_failed": 1227188,
+      "decode_failed": 0,
+      "untracked_cgroup": 0
+    },
+    "not_instrumented": []
+  },
+  "files": {
+    "/bin": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.941080068Z",
+      "last_seen": "2026-06-11T06:23:47.901247678Z",
+      "count": 7814
+    },
+    "/bin/ls": {
+      "source": "direct",
+      "access_modes": [
+        "x",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:22:46.940797326Z",
+      "last_seen": "2026-06-11T06:23:47.901015849Z",
+      "count": 8432
+    },
+    "/bin/sh": {
+      "source": "direct",
+      "access_modes": [
+        "x",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:22:46.939652438Z",
+      "last_seen": "2026-06-11T06:22:46.939975555Z",
+      "count": 1
+    },
+    "/etc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.944189907Z",
+      "last_seen": "2026-06-11T06:23:47.9079068Z",
+      "count": 9905
+    },
+    "/etc/group": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.943608921Z",
+      "last_seen": "2026-06-11T06:23:47.901608129Z",
+      "count": 23266
+    },
+    "/etc/ld.so.cache": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.940182466Z",
+      "last_seen": "2026-06-11T06:23:47.901041515Z",
+      "count": 6809
+    },
+    "/etc/localtime": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.943852457Z",
+      "last_seen": "2026-06-11T06:23:47.901610921Z",
+      "count": 10874
+    },
+    "/etc/network": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.9444419Z",
+      "last_seen": "2026-06-11T06:23:47.907931133Z",
+      "count": 9838
+    },
+    "/etc/network/if-down.d": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.944450859Z",
+      "last_seen": "2026-06-11T06:23:47.907937257Z",
+      "count": 9788
+    },
+    "/etc/network/if-post-down.d": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.944454942Z",
+      "last_seen": "2026-06-11T06:23:47.902020788Z",
+      "count": 9709
+    },
+    "/etc/network/if-pre-up.d": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.944457233Z",
+      "last_seen": "2026-06-11T06:23:47.902023455Z",
+      "count": 9570
+    },
+    "/etc/network/if-up.d": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.944459442Z",
+      "last_seen": "2026-06-11T06:23:47.902057579Z",
+      "count": 9458
+    },
+    "/etc/passwd": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.943606171Z",
+      "last_seen": "2026-06-11T06:23:47.901605296Z",
+      "count": 23605
+    },
+    "/lib": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.945127133Z",
+      "last_seen": "2026-06-11T06:23:47.907939799Z",
+      "count": 9354
+    },
+    "/lib/aarch64-linux-gnu/libm.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:22:46.940185841Z",
+      "last_seen": "2026-06-11T06:23:47.901052682Z",
+      "count": 6453
+    },
+    "/lib/libc.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:22:46.940270964Z",
+      "last_seen": "2026-06-11T06:23:47.901138847Z",
+      "count": 6428
+    },
+    "/lib/libm.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:22:46.940192382Z",
+      "last_seen": "2026-06-11T06:23:47.901052682Z",
+      "count": 5783
+    },
+    "/lib/libresolv.so.2": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:22:46.940201091Z",
+      "last_seen": "2026-06-11T06:23:47.901062306Z",
+      "count": 5928
+    },
+    "/proc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.94513005Z",
+      "last_seen": "2026-06-11T06:23:47.907942299Z",
+      "count": 9475
+    },
+    "/usr": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.962197287Z",
+      "last_seen": "2026-06-11T06:23:47.899948828Z",
+      "count": 12319
+    },
+    "/usr/bin": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.962287535Z",
+      "last_seen": "2026-06-11T06:23:47.899986077Z",
+      "count": 12128
+    },
+    "/usr/lib/aarch64-linux-gnu/libm.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:22:46.940189216Z",
+      "last_seen": "2026-06-11T06:23:47.901052682Z",
+      "count": 6155
+    },
+    "/usr/sbin": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:22:46.962290243Z",
+      "last_seen": "2026-06-11T06:23:47.899988702Z",
+      "count": 12094
+    }
+  }
+}

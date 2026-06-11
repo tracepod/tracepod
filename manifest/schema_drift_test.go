@@ -32,6 +32,7 @@ import (
 var publishedSchemaHashes = map[string]string{
 	"v1.schema.json": "aa63c9640ff9f22e46527be3ff535ff419fe5a66cbefccfc49179f18361ae974",
 	"v2.schema.json": "8b518b4357e3d441a4e6590a35e6e1082f36d8d987e7a71fd5f8d555f4a175ec",
+	"v3.schema.json": "d02f59719ff70799a793b08b9c457db3cbd26de8e0371f3ecec4bb77b00e576c",
 }
 
 const schemaDir = "../docs/profile-schema"

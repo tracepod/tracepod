@@ -16,13 +16,17 @@ import "time"
 //
 //   - v1 (legacy, string "1"): pre-versioned file-observation manifest. Carried a
 //     string schema_version, no coverage markers, no start-event records.
-//   - v2 (current, integer 2): adds the Coverage block (R2 process-start marker,
+//   - v2 (integer 2): adds the Coverage block (R2 process-start marker,
 //     attach/first-exec timestamps) and the ContainerStarts records (R3). The
 //     schema_version field changed type from string to integer at this bump.
+//   - v3 (current, integer 3): adds the EventLoss block (top-level event_loss) —
+//     per-window event-loss counters so a consumer can refuse "not observed ⇒
+//     not loaded" claims from a lossy observation window. No v2 field semantics
+//     changed.
 //
 // Consumers MUST treat any profile lacking an integer schema_version (i.e. the
 // legacy string "1" form, or no field at all) as a legacy v1 profile.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // ObservationSource describes how a file was included in the manifest.
 // Every FileEntry carries exactly one source. The source is the foundation of
@@ -161,6 +165,12 @@ type Manifest struct {
 	// window (R3), in observation order. Always present; never nil (empty slice
 	// when the sensor witnessed no start, e.g. a synthesised/legacy aggregator).
 	ContainerStarts []StartEvent `json:"container_starts"`
+
+	// EventLoss carries the v3 per-window event-loss counters. Always present.
+	// total==0 is a positive claim ("instrumented everywhere, lost nothing");
+	// any nonzero total taints "not observed ⇒ not loaded" conclusions for the
+	// whole window. See EventLoss and docs/profile-schema/README.md.
+	EventLoss EventLoss `json:"event_loss"`
 
 	Files map[string]FileEntry `json:"files"` // keyed by absolute path
 }

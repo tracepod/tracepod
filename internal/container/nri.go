@@ -211,13 +211,13 @@ func (p *Plugin) adopt(ctr *api.Container, cgPath string, alreadyRunning bool) {
 
 	attachTime := time.Now().UTC()
 
-	if err := p.allower.AllowCgroup(id); err != nil {
-		fmt.Fprintf(os.Stderr, "sensor: adopt id=%s — AllowCgroup(%d) failed: %v\n", ctr.GetId(), id, err)
-	}
-
-	fmt.Fprintf(os.Stderr, "sensor: adopt id=%s cgroupID=%d alreadyRunning=%t — allowed\n",
-		ctr.GetId(), id, alreadyRunning)
-
+	// Register the aggregator (onStart) BEFORE allowlisting the cgroup. The
+	// kprobes start emitting for this cgroup the instant AllowCgroup returns; if
+	// the userspace aggregator did not yet exist, those first events would route
+	// to no aggregator and be counted as untracked_cgroup loss (schema v3). Doing
+	// onStart first means the destination is ready before the kernel firehose
+	// opens, so a clean start records zero loss. (The aggregator's loss baseline
+	// is captured here too, so any genuine drop during the window still counts.)
 	if p.onStart != nil {
 		p.onStart(StartInfo{
 			ContainerID:           ctr.GetId(),
@@ -227,6 +227,13 @@ func (p *Plugin) adopt(ctr *api.Container, cgPath string, alreadyRunning bool) {
 			ProcessAlreadyRunning: alreadyRunning,
 		})
 	}
+
+	if err := p.allower.AllowCgroup(id); err != nil {
+		fmt.Fprintf(os.Stderr, "sensor: adopt id=%s — AllowCgroup(%d) failed: %v\n", ctr.GetId(), id, err)
+	}
+
+	fmt.Fprintf(os.Stderr, "sensor: adopt id=%s cgroupID=%d alreadyRunning=%t — allowed\n",
+		ctr.GetId(), id, alreadyRunning)
 }
 
 // Synchronize is invoked by NRI when the plugin first registers. It receives the

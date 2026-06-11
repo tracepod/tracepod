@@ -219,6 +219,77 @@ if [ "$count" -eq 0 ]; then
   exit 1
 fi
 
+# ── Phase 5: induced-loss scenario (shrunken ring buffer) ───────────────────────
+# Re-deploy the sensor with a deliberately tiny events ring buffer, then run a
+# high-churn workload so bpf_ringbuf_reserve() fails and the schema-v3 event_loss
+# counters go demonstrably nonzero. This is the stable proof that total > 0 is
+# reachable and recorded — captured from a REAL shrunken-buffer run, never
+# hand-edited. The normal fixtures above were recorded under the default 256 KB
+# buffer and must read total == 0.
+INDUCED_RINGBUF_BYTES="${INDUCED_RINGBUF_BYTES:-4096}"  # one page = minimum ring buffer
+info "Phase 5: induced-loss — restarting sensor with a ${INDUCED_RINGBUF_BYTES}-byte ring buffer"
+helm upgrade --install tracepod "${REPO_ROOT}/helm/tracepod" \
+  --set sensor.image.repository="${SENSOR_IMAGE%%:*}" \
+  --set sensor.image.tag="${SENSOR_IMAGE##*:}" \
+  --set sensor.image.pullPolicy=Never \
+  --set sensor.profileHostPath=/var/lib/tracepod/profiles \
+  --set sensor.ringbufBytes="${INDUCED_RINGBUF_BYTES}"
+kubectl rollout status daemonset/tracepod-sensor --timeout=120s
+# Let the restarted sensor reconnect NRI before the workload starts, so it
+# attaches via StartContainer (its own window) rather than Synchronize.
+sleep 5
+
+info "Phase 5: deploying high-churn workload to overflow the ring buffer"
+kubectl create deployment fx-induced --image="${RESTART_IMAGE}" -- \
+  /bin/sh -c 'while true; do for i in 1 2 3 4 5 6 7 8; do ( ls -laR /proc /etc /bin /usr /lib 2>/dev/null >/dev/null ) & done; wait; done' >/dev/null
+kubectl rollout status deployment/fx-induced --timeout=90s || true
+
+declare -A INDUCED_IDS
+collect_induced_ids() {
+  while IFS= read -r raw; do
+    id="${raw#containerd://}"; [ -z "$id" ] && continue
+    INDUCED_IDS["$id"]=1
+  done < <(kubectl get pods -l app=fx-induced \
+    -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.containerID}{"\n"}{.lastState.terminated.containerID}{"\n"}{end}{end}' 2>/dev/null)
+}
+info "Letting the churn workload run to accumulate drops (~30s)..."
+for _ in $(seq 1 10); do collect_induced_ids; sleep 3; done
+kubectl scale deployment fx-induced --replicas=0
+collect_induced_ids
+
+# Pick the induced container's profile that actually captured loss.
+induced_src=""
+for _ in $(seq 1 30); do
+  for id in "${!INDUCED_IDS[@]}"; do
+    f="${PROFILE_DIR}/${id}/files.json"
+    [ -f "$f" ] || continue
+    tot=$(jq -r '.event_loss.total // 0' "$f")
+    if [ "${tot:-0}" -gt 0 ]; then induced_src="$f"; break; fi
+  done
+  [ -n "$induced_src" ] && break
+  sleep 2
+done
+
+if [ -z "$induced_src" ]; then
+  fail "induced-loss scenario produced no profile with event_loss.total > 0"
+  fail "(lower INDUCED_RINGBUF_BYTES, or lengthen/intensify the churn window)"
+  exit 1
+fi
+ver=$(jq -r '.schema_version' "$induced_src")
+if [ "$ver" != "${SCHEMA_VERSION}" ]; then
+  fail "induced-loss profile schema_version=${ver} != ${SCHEMA_VERSION}"; exit 1
+fi
+cp "$induced_src" "${FIXTURE_DIR}/induced-loss.json"
+count=$((count + 1))
+info "induced-loss captured: total=$(jq -r '.event_loss.total' "$induced_src") by_stage=$(jq -c '.event_loss.by_stage' "$induced_src")"
+
+# Restore the default-buffer sensor so a --keep-cluster leaves a clean state.
+helm upgrade --install tracepod "${REPO_ROOT}/helm/tracepod" \
+  --set sensor.image.repository="${SENSOR_IMAGE%%:*}" \
+  --set sensor.image.tag="${SENSOR_IMAGE##*:}" \
+  --set sensor.image.pullPolicy=Never \
+  --set sensor.profileHostPath=/var/lib/tracepod/profiles >/dev/null 2>&1 || true
+
 # Record provenance (NOT a profile fixture — metadata about the recording).
 cat > "${FIXTURE_DIR}/RECORDING.md" <<EOF
 # Recorded profile fixtures — schema v${SCHEMA_VERSION}
@@ -236,19 +307,22 @@ Fixtures (one profile per profiled container; restart generations suffixed -N):
 - interp.json       interpreted app, large shared-library surface — true
 - restart*.json     restarted in-window; each generation a separate profile — true
 - missed-start.json deployed BEFORE the sensor, adopted via Synchronize — false
+- induced-loss.json high-churn workload under a ${INDUCED_RINGBUF_BYTES}-byte ring
+                    buffer — schema-v3 event_loss.total > 0 (the rest read 0)
 
-Note: container IDs differ on every re-record; the marker outcomes above and the
-pinned images are the stable, replay-relevant properties.
+Note: container IDs differ on every re-record; the marker/loss outcomes above and
+the pinned images are the stable, replay-relevant properties.
 EOF
 
 info "Recorded ${count} profile fixture(s):"
 ls -1 "${FIXTURE_DIR}"
 info "marker summary:"
 for f in "${FIXTURE_DIR}"/*.json; do
-  printf "  %-20s pso=%s starts=%s files=%s\n" "$(basename "$f")" \
+  printf "  %-20s pso=%s starts=%s files=%s loss=%s\n" "$(basename "$f")" \
     "$(jq -r '.coverage.process_start_observed' "$f")" \
     "$(jq -r '.container_starts|length' "$f")" \
-    "$(jq -r '.files|length' "$f")"
+    "$(jq -r '.files|length' "$f")" \
+    "$(jq -r '.event_loss.total' "$f")"
 done
 
 echo -e "${GREEN}══════════════════════════════════════${NC}"

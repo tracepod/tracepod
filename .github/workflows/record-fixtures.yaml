@@ -59,7 +59,7 @@ jobs:
         run: bash hack/record-profile-fixtures.sh
 
       - name: Validate recorded fixtures against schema
-        run: go test ./manifest/ -run 'TestProfileFixtures_conform|TestSchemaConformance|TestSchemaDrift' -v
+        run: go test ./manifest/ -run 'TestProfileFixtures_conform|TestProfileFixtures_coverScenarios|TestProfileFixtures_eventLoss|TestSchemaConformance|TestSchemaDrift' -v
 
       - name: Open PR with re-recorded fixtures
         uses: peter-evans/create-pull-request@v6
