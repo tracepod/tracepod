@@ -241,7 +241,8 @@ func TestProfileFixtures_eventLoss(t *testing.T) {
 		n++
 		el := m.EventLoss
 
-		// Sum invariant holds for every fixture.
+		// Sum invariant holds for every fixture — total counts HARD losses only;
+		// tolerated is excluded by construction.
 		var sum uint64
 		for _, v := range el.ByStage {
 			sum += v
@@ -249,15 +250,25 @@ func TestProfileFixtures_eventLoss(t *testing.T) {
 		if el.Total != sum {
 			t.Errorf("%s: event_loss.total=%d != sum(by_stage)=%d", name, el.Total, sum)
 		}
-		// A recorded fixture is from a live sensor: every audited stage must be
-		// instrumented (zero-is-a-claim), so not_instrumented must be empty and
-		// by_stage must carry all canonical stages.
+		// A recorded fixture is from a live sensor: every audited stage (hard AND
+		// tolerated) must be instrumented (zero-is-a-claim), so not_instrumented
+		// must be empty and by_stage/tolerated must carry all canonical stages.
 		if len(el.NotInstrumented) != 0 {
 			t.Errorf("%s: recorded fixture has not_instrumented=%v — a live sensor instruments every stage", name, el.NotInstrumented)
 		}
 		for _, st := range manifest.LossStages {
 			if _, ok := el.ByStage[st]; !ok {
 				t.Errorf("%s: by_stage missing instrumented stage %q", name, st)
+			}
+		}
+		for _, st := range manifest.ToleratedStages {
+			if _, ok := el.Tolerated[st]; !ok {
+				t.Errorf("%s: tolerated missing instrumented stage %q", name, st)
+			}
+			// A tolerated stage must never leak into the hard bucket (regression
+			// guard: path_read_failed lives in tolerated and nowhere else).
+			if _, ok := el.ByStage[st]; ok {
+				t.Errorf("%s: tolerated stage %q must not appear in by_stage", name, st)
 			}
 		}
 
@@ -272,6 +283,10 @@ func TestProfileFixtures_eventLoss(t *testing.T) {
 			}
 			sawNonzero++
 		default:
+			// Normal scenarios: the strict-zero gate on HARD losses holds even
+			// though tolerated.path_read_failed may carry its intrinsic idle floor
+			// (0-2). This is the whole point of the tolerated category — a nonzero
+			// path-read floor must NOT taint total.
 			if el.Total != 0 {
 				t.Errorf("%s: normal fixture must have event_loss.total == 0, got %d (by_stage=%v)", name, el.Total, el.ByStage)
 			}

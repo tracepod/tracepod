@@ -35,22 +35,28 @@ struct {
 
 /* Event-loss counters (schema v3). A per-CPU array so increments are lock-free
  * and loss-proof: each CPU bumps its own slot, userspace sums across CPUs at
- * profile finalisation. This counts the buffer-pressure drop the kernel side can
- * see but userspace never could otherwise:
- *   STAT_RESERVE_FAILED — bpf_ringbuf_reserve() returned NULL (ring full): the
- *                         primary buffer-pressure loss point, across all probes.
+ * profile finalisation. Two distinct loss classes are counted here:
+ *   STAT_RESERVE_FAILED   — bpf_ringbuf_reserve() returned NULL (ring full): the
+ *                           primary buffer-pressure loss point, across all probes.
+ *                           A HARD loss — counted toward event_loss.total.
+ *   STAT_PATH_READ_FAILED — bpf_probe_read_user_str() faulted on the openat
+ *                           filename pointer (e.g. the user page is not yet
+ *                           present): the reservation succeeded but the path was
+ *                           unreadable, so the open went unidentified. A TOLERATED
+ *                           loss — a counted observation lost with a known
+ *                           load-independent idle floor (0–2 per container). It is
+ *                           reported in event_loss.tolerated, separately gated by
+ *                           the consumer, and NEVER folded into total (folding it
+ *                           in would put a permanent floor under the strict-zero
+ *                           gate on hard losses and defeat it). See
+ *                           manifest/eventloss.go and docs/profile-schema/README.md.
  *
- * NOTE: a userspace filename pointer that faults under bpf_probe_read_user_str()
- * (the openat read-failure path below) is deliberately NOT counted here. It is a
- * path-read fault, a different class from a capacity/transport drop, with a
- * load-independent nonzero floor (optimistic user-pointer reads before the page
- * is present) — counting it would impose a permanent nonzero floor on the
- * consumer's lossy-window gate and defeat it. See manifest/eventloss.go and
- * docs/profile-schema/README.md for the audit rationale.
- *
- * Keep this index in sync with the Go reader in probe.go (lossStatIndex). */
-#define STAT_RESERVE_FAILED 0
-#define STAT_MAX            1
+ * Both are counted in-kernel — userspace never sees a reservation that never
+ * happened, nor a discard the kernel performed. Keep these indices in sync with
+ * the Go reader in probe.go (lossStatIndex). */
+#define STAT_RESERVE_FAILED   0
+#define STAT_PATH_READ_FAILED 1
+#define STAT_MAX              2
 
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -122,10 +128,13 @@ int BPF_KPROBE(kprobe_openat, int dfd, const char *filename,
 
 	long n = bpf_probe_read_user_str(e->filename, sizeof(e->filename), filename);
 	if (n <= 0) {
-		/* Filename pointer unreadable (e.g. page not yet present). The event is
-		 * discarded, but this is a path-read fault, not a capacity/transport
-		 * drop, and is intentionally NOT counted toward event_loss — see the
-		 * STAT_* note above. */
+		/* Filename pointer unreadable (e.g. page not yet present). The reservation
+		 * succeeded but the path could not be read, so the open goes unidentified
+		 * — a lost observation. This is a path-read fault, a different class from a
+		 * capacity/transport drop: it has a known load-independent idle floor, so
+		 * it is counted as a TOLERATED loss (event_loss.tolerated.path_read_failed)
+		 * and never folded into total. See the STAT_* note above. */
+		stat_inc(STAT_PATH_READ_FAILED);
 		bpf_ringbuf_discard(e, 0);
 		return 0;
 	}

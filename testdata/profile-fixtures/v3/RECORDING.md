@@ -1,6 +1,6 @@
 # Recorded profile fixtures — schema v3
 
-Recorded by hack/record-profile-fixtures.sh on 2026-06-11T06:23:48Z
+Recorded by hack/record-profile-fixtures.sh on 2026-06-11T19:53:15Z
 (arch: aarch64). Verbatim sensor output — do not edit by hand; re-record instead.
 
 Workloads (pinned by digest):
@@ -15,6 +15,12 @@ Fixtures (one profile per profiled container; restart generations suffixed -N):
 - missed-start.json deployed BEFORE the sensor, adopted via Synchronize — false
 - induced-loss.json high-churn workload under a 4096-byte ring
                     buffer — schema-v3 event_loss.total > 0 (the rest read 0)
+
+Event-loss (schema v3 + OSS-4b): every fixture carries event_loss with a HARD
+gate (total = Σ by_stage) and a separately-gated TOLERATED category
+(event_loss.tolerated.path_read_failed). Normal fixtures read total: 0 with a
+path_read_failed idle floor (typically 0-2 — visible, never folded into total);
+induced-loss reads total > 0.
 
 Note: container IDs differ on every re-record; the marker/loss outcomes above and
 the pinned images are the stable, replay-relevant properties.

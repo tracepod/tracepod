@@ -1,17 +1,17 @@
 {
   "schema_version": 3,
-  "container_id": "f985e836a0924c1927dec51a80a73f0a02725d130baf1974d396707f6f3e2f81",
-  "profile_start": "2026-06-11T06:21:22.108429298Z",
-  "profile_end": "2026-06-11T06:22:10.008312088Z",
+  "container_id": "e0c4c95c5ef69cb0b353fac1811f075aa54851b09ceb3e0bef4cb09f4d411f10",
+  "profile_start": "2026-06-11T19:50:49.625807254Z",
+  "profile_end": "2026-06-11T19:51:37.047475124Z",
   "coverage": {
     "process_start_observed": true,
-    "attach_time": "2026-06-11T06:21:22.108428507Z",
-    "first_exec_time": "2026-06-11T06:21:22.110898705Z"
+    "attach_time": "2026-06-11T19:50:49.625806629Z",
+    "first_exec_time": "2026-06-11T19:50:49.628262804Z"
   },
   "container_starts": [
     {
-      "container_id": "f985e836a0924c1927dec51a80a73f0a02725d130baf1974d396707f6f3e2f81",
-      "timestamp": "2026-06-11T06:21:22.108429298Z"
+      "container_id": "e0c4c95c5ef69cb0b353fac1811f075aa54851b09ceb3e0bef4cb09f4d411f10",
+      "timestamp": "2026-06-11T19:50:49.625807254Z"
     }
   ],
   "event_loss": {
@@ -21,6 +21,9 @@
       "decode_failed": 0,
       "untracked_cgroup": 0
     },
+    "tolerated": {
+      "path_read_failed": 2
+    },
     "not_instrumented": []
   },
   "files": {
@@ -29,8 +32,8 @@
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:21:22.112389875Z",
-      "last_seen": "2026-06-11T06:21:22.112389875Z",
+      "first_seen": "2026-06-11T19:50:49.62981049Z",
+      "last_seen": "2026-06-11T19:50:49.62981049Z",
       "count": 1
     },
     "/opt/hostedtoolcache/go/1.23.5/x64/lib/time/zoneinfo.zip": {
@@ -38,8 +41,8 @@
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:21:22.112394208Z",
-      "last_seen": "2026-06-11T06:21:22.112394208Z",
+      "first_seen": "2026-06-11T19:50:49.629814782Z",
+      "last_seen": "2026-06-11T19:50:49.629814782Z",
       "count": 1
     },
     "/whoami": {
@@ -48,8 +51,8 @@
         "x",
         "m"
       ],
-      "first_seen": "2026-06-11T06:21:22.110898705Z",
-      "last_seen": "2026-06-11T06:21:22.111339093Z",
+      "first_seen": "2026-06-11T19:50:49.628262804Z",
+      "last_seen": "2026-06-11T19:50:49.628637382Z",
       "count": 1
     }
   }
