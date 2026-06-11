@@ -220,8 +220,15 @@ if command -v jq >/dev/null 2>&1; then
   if [ "${SUM}" != "${LOSS_TOTAL}" ]; then
     fail "event_loss sum invariant broken: total=${LOSS_TOTAL} sum(by_stage)=${SUM}"; exit 1
   fi
+  # tolerated (v3 + OSS-4b): path_read_failed must be present (instrumented) and is
+  # EXCLUDED from total. It carries an intrinsic idle floor (0-2), so we assert it
+  # is a non-negative integer and surface the value — never gate it at zero.
+  PR=$(jq -r '.event_loss.tolerated.path_read_failed // "missing"' "$MANIFEST")
+  if ! printf '%s' "${PR}" | grep -Eq '^[0-9]+$'; then
+    fail "event_loss.tolerated.path_read_failed=${PR} — must be an instrumented integer"; exit 1
+  fi
   STAGES=$(jq -r '.event_loss.by_stage | keys | length' "$MANIFEST")
-  info "event_loss.total=${LOSS_TOTAL} across ${STAGES} instrumented stage(s)"
+  info "event_loss.total=${LOSS_TOTAL} across ${STAGES} hard stage(s); tolerated.path_read_failed=${PR}"
 else
   warn "jq not found — skipping schema v3 shape assertions"
 fi

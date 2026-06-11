@@ -310,6 +310,12 @@ Fixtures (one profile per profiled container; restart generations suffixed -N):
 - induced-loss.json high-churn workload under a ${INDUCED_RINGBUF_BYTES}-byte ring
                     buffer — schema-v3 event_loss.total > 0 (the rest read 0)
 
+Event-loss (schema v3 + OSS-4b): every fixture carries event_loss with a HARD
+gate (total = Σ by_stage) and a separately-gated TOLERATED category
+(event_loss.tolerated.path_read_failed). Normal fixtures read total: 0 with a
+path_read_failed idle floor (typically 0-2 — visible, never folded into total);
+induced-loss reads total > 0.
+
 Note: container IDs differ on every re-record; the marker/loss outcomes above and
 the pinned images are the stable, replay-relevant properties.
 EOF
@@ -318,11 +324,12 @@ info "Recorded ${count} profile fixture(s):"
 ls -1 "${FIXTURE_DIR}"
 info "marker summary:"
 for f in "${FIXTURE_DIR}"/*.json; do
-  printf "  %-20s pso=%s starts=%s files=%s loss=%s\n" "$(basename "$f")" \
+  printf "  %-20s pso=%s starts=%s files=%s loss=%s tolerated.path_read=%s\n" "$(basename "$f")" \
     "$(jq -r '.coverage.process_start_observed' "$f")" \
     "$(jq -r '.container_starts|length' "$f")" \
     "$(jq -r '.files|length' "$f")" \
-    "$(jq -r '.event_loss.total' "$f")"
+    "$(jq -r '.event_loss.total' "$f")" \
+    "$(jq -r '.event_loss.tolerated.path_read_failed // "n/a"' "$f")"
 done
 
 echo -e "${GREEN}══════════════════════════════════════${NC}"

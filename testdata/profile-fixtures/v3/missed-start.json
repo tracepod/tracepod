@@ -1,16 +1,16 @@
 {
   "schema_version": 3,
-  "container_id": "ccac0e3cfed506676fbe9e16452a83b5de9746b553ce6b63f8cb2831ef3e8cde",
-  "profile_start": "2026-06-11T06:21:18.916243534Z",
-  "profile_end": "2026-06-11T06:22:40.021079697Z",
+  "container_id": "3acfb236f74dd83641022fdc0bda0b158ee6aef36692e1355d66a6b150ad49a6",
+  "profile_start": "2026-06-11T19:50:46.753361192Z",
+  "profile_end": "2026-06-11T19:52:07.071757303Z",
   "coverage": {
     "process_start_observed": false,
-    "attach_time": "2026-06-11T06:21:18.916243492Z"
+    "attach_time": "2026-06-11T19:50:46.753361109Z"
   },
   "container_starts": [
     {
-      "container_id": "ccac0e3cfed506676fbe9e16452a83b5de9746b553ce6b63f8cb2831ef3e8cde",
-      "timestamp": "2026-06-11T06:21:18.916243534Z"
+      "container_id": "3acfb236f74dd83641022fdc0bda0b158ee6aef36692e1355d66a6b150ad49a6",
+      "timestamp": "2026-06-11T19:50:46.753361192Z"
     }
   ],
   "event_loss": {
@@ -19,6 +19,9 @@
       "bpf_reserve_failed": 0,
       "decode_failed": 0,
       "untracked_cgroup": 0
+    },
+    "tolerated": {
+      "path_read_failed": 2
     },
     "not_instrumented": []
   },

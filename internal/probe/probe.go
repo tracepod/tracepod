@@ -137,18 +137,25 @@ func (p *Probe) DenyCgroup(id uint64) error {
 }
 
 // lossStatIndex maps each in-kernel loss-counter slot in event_loss_stats to its
-// manifest stage name. Indices MUST match the STAT_* defines in openat.c.
+// manifest stage name. Indices MUST match the STAT_* defines in openat.c. The
+// stage names span both loss classes — bpf_reserve_failed is a HARD loss
+// (event_loss.total), path_read_failed is a TOLERATED loss (event_loss.tolerated)
+// — but both are counted by the same loss-proof per-CPU mechanism here; the
+// sensor's reader routes each to the correct event_loss bucket (see cmd/sensor).
 var lossStatIndex = []struct {
 	idx   uint32
 	stage string
 }{
-	{0, manifest.LossStageBPFReserveFailed}, // STAT_RESERVE_FAILED
+	{0, manifest.LossStageBPFReserveFailed},     // STAT_RESERVE_FAILED   (hard)
+	{1, manifest.ToleratedStagePathReadFailed},  // STAT_PATH_READ_FAILED (tolerated)
 }
 
 // LossStats reads the in-kernel per-CPU event-loss counters and returns the
 // cumulative count per BPF-side stage, summed across all CPUs (schema v3). The
-// counts are monotonic since program load. The sensor's loss reader merges these
-// with its userspace counters; see cmd/sensor.
+// returned map carries both the hard bpf_reserve_failed counter and the tolerated
+// path_read_failed counter; the caller classifies them. The counts are monotonic
+// since program load. The sensor's loss reader merges these with its userspace
+// counters; see cmd/sensor.
 //
 // A PERCPU_ARRAY lookup yields one value per possible CPU; we sum them. An error
 // here means the BPF stages must be reported not_instrumented for the window

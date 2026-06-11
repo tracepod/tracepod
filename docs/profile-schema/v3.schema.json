@@ -80,18 +80,26 @@
       }
     },
     "event_loss": {
-      "description": "Window-level event-loss counters (v3). Counts are process-wide and per profiling window, NOT per container: buffer drops are not attributable to one container, so any nonzero total taints 'not observed => not loaded' conclusions for every container observed in this window. total==0 is a positive claim ('instrumented at every audited loss point and lost nothing'), never 'did not count'.",
+      "description": "Window-level event-loss counters (v3). Counts are process-wide and per profiling window, NOT per container: buffer drops are not attributable to one container, so any nonzero total taints 'not observed => not loaded' conclusions for every container observed in this window. total counts HARD losses only and is a strict-zero gate: total==0 is a positive claim ('instrumented at every audited hard loss point and lost nothing'), never 'did not count'. Tolerated losses (counted observations lost with a known intrinsic floor) are reported separately in 'tolerated' and excluded from total; consumers MUST gate them with their own configurable ceiling and surface the counts, never fold them into total. v3 was revised in place to add 'tolerated' before any consumer existed — see docs/profile-schema/README.md (v3-revision note).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["total", "by_stage", "not_instrumented"],
+      "required": ["total", "by_stage", "tolerated", "not_instrumented"],
       "properties": {
         "total": {
-          "description": "Sum of all by_stage counts. The consumer gate: treat any nonzero value as grounds to withhold a 'never loaded' claim for the whole window.",
+          "description": "Sum of all by_stage (HARD-loss) counts; excludes tolerated. The strict-zero consumer gate: treat any nonzero value as grounds to withhold a 'never loaded' claim for the whole window.",
           "type": "integer",
           "minimum": 0
         },
         "by_stage": {
-          "description": "Per-stage loss counts for the window, keyed by audited loss-point name (bpf_reserve_failed, decode_failed, untracked_cgroup). A stage present with value 0 is an explicit 'counted, lost nothing'. A stage that could not be instrumented is absent here and listed in not_instrumented instead, never read as a false zero. Diagnosis only — gate on total.",
+          "description": "Per-stage HARD-loss counts for the window, keyed by audited loss-point name (bpf_reserve_failed, decode_failed, untracked_cgroup). Their values sum to total. A stage present with value 0 is an explicit 'counted, lost nothing'. A stage that could not be instrumented is absent here and listed in not_instrumented instead, never read as a false zero. Diagnosis only — gate on total.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "tolerated": {
+          "description": "Per-stage TOLERATED-loss counts for the window, keyed by audited loss-point name (path_read_failed). Counted observations lost for reasons with a known intrinsic floor (e.g. an openat filename pointer that faulted before its page was present, idle floor 0-2 per container). EXCLUDED from total. A consumer MUST gate these with its own conservative, configurable ceiling and MUST surface the counts in any evidence it emits — never fold them into total, never ignore them. A stage present with value 0 is an explicit 'counted, lost nothing'.",
           "type": "object",
           "additionalProperties": {
             "type": "integer",
@@ -99,7 +107,7 @@
           }
         },
         "not_instrumented": {
-          "description": "Audited loss points that were NOT counted for this window (the zero-is-a-claim escape hatch). Stages named here are absent from by_stage so they never masquerade as a zero. Empty in the normal fully-instrumented case.",
+          "description": "Audited loss points (hard or tolerated) that were NOT counted for this window (the zero-is-a-claim escape hatch). Stages named here are absent from by_stage and tolerated so they never masquerade as a zero. Empty in the normal fully-instrumented case (this sensor instruments every audited point as of v3).",
           "type": "array",
           "items": {
             "type": "string"
