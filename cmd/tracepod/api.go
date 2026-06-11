@@ -11,12 +11,67 @@ import (
 
 // ProfileSummary mirrors the profileListItem JSON returned by GET /api/v1/profiles.
 type ProfileSummary struct {
-	Namespace  string     `json:"namespace"`
-	Deployment string     `json:"deployment"`
-	Status     string     `json:"status"`
-	FileCount  int        `json:"file_count"`
-	StartedAt  time.Time  `json:"started_at"`
-	StoppedAt  *time.Time `json:"stopped_at,omitempty"`
+	Namespace  string         `json:"namespace"`
+	Deployment string         `json:"deployment"`
+	Status     string         `json:"status"`
+	FileCount  int            `json:"file_count"`
+	Coverage   *CoverageScore `json:"coverage,omitempty"`
+	StartedAt  time.Time      `json:"started_at"`
+	StoppedAt  *time.Time     `json:"stopped_at,omitempty"`
+}
+
+// CoverageScore mirrors the `coverage` object in the profile API resource: the
+// composite coverage score plus its per-component breakdown. The Lite CLI shows
+// the composite + band in `profile list`; the full breakdown (Components) is
+// emitted by `profile get` (raw JSON), so it is never omitted where shown.
+type CoverageScore struct {
+	Score         int                  `json:"score"`
+	Band          string               `json:"band"`
+	Legacy        bool                 `json:"legacy"`
+	SchemaVersion int                  `json:"schema_version"`
+	Capped        bool                 `json:"capped"`
+	ConfigVersion string               `json:"config_version"`
+	Components    CoverageComponents   `json:"components"`
+	Generations   []CoverageGeneration `json:"generations"`
+}
+
+// CoverageComponent is one named, normalised (0–100) coverage signal.
+type CoverageComponent struct {
+	Score  int     `json:"score"`
+	Weight float64 `json:"weight"`
+	Detail string  `json:"detail"`
+}
+
+// CoverageComponents is the five-component breakdown.
+type CoverageComponents struct {
+	Duration     CoverageComponent `json:"duration"`
+	ProcessStart CoverageComponent `json:"process_start"`
+	Restart      CoverageComponent `json:"restart"`
+	Plateau      CoverageComponent `json:"plateau"`
+	Diversity    CoverageComponent `json:"diversity"`
+}
+
+// CoverageGeneration is the per-generation process-start/restart evidence.
+type CoverageGeneration struct {
+	ContainerID          string `json:"container_id"`
+	SchemaVersion        int    `json:"schema_version"`
+	ProcessStartObserved bool   `json:"process_start_observed"`
+	Starts               int    `json:"starts"`
+}
+
+// CoverageCell renders the coverage column for `profile list`.
+func (p ProfileSummary) CoverageCell() string {
+	if p.Coverage == nil {
+		return "—"
+	}
+	if p.Coverage.Legacy {
+		return "legacy"
+	}
+	cell := fmt.Sprintf("%d %s", p.Coverage.Score, p.Coverage.Band)
+	if p.Coverage.Capped {
+		cell += " (capped)"
+	}
+	return cell
 }
 
 // ListProfiles fetches GET /api/v1/profiles and returns all sessions.
