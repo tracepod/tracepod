@@ -124,13 +124,14 @@ func runList(args []string, kubeconfig, ctrlNS string) {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tDEPLOYMENT\tSTATUS\tFILES\tSTARTED AT")
+	fmt.Fprintln(w, "NAMESPACE\tDEPLOYMENT\tSTATUS\tFILES\tCOVERAGE\tSTARTED AT")
 	for _, s := range sessions {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
-			s.Namespace, s.Deployment, s.Status, s.FileCount,
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\n",
+			s.Namespace, s.Deployment, s.Status, s.FileCount, s.CoverageCell(),
 			s.StartedAt.Format(time.RFC3339))
 	}
 	w.Flush()
+	fmt.Fprintln(os.Stderr, "tip: `tracepod profile get` returns the full coverage breakdown as JSON")
 }
 
 func runGet(args []string, kubeconfig, ctrlNS string) {
