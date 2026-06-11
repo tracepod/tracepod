@@ -52,8 +52,11 @@ func TestEventLossStats_mapPresentAndReadable(t *testing.T) {
 		t.Fatalf("LossStats: %v", err)
 	}
 
+	// Both BPF-side stages must be present: the hard bpf_reserve_failed and the
+	// tolerated path_read_failed (schema v3 + OSS-4b). The caller classifies them.
 	want := map[string]bool{
-		manifest.LossStageBPFReserveFailed: true,
+		manifest.LossStageBPFReserveFailed:    true,
+		manifest.ToleratedStagePathReadFailed: true,
 	}
 	for stage := range want {
 		if _, ok := stats[stage]; !ok {
@@ -67,6 +70,44 @@ func TestEventLossStats_mapPresentAndReadable(t *testing.T) {
 		if n != 0 {
 			t.Errorf("freshly loaded program: stage %q = %d, want 0 (true zero baseline)", stage, n)
 		}
+	}
+}
+
+// TestEventLossStats_pathReadFailedForced forces a known per-CPU count into the
+// tolerated path_read_failed slot (key 1 == STAT_PATH_READ_FAILED) and asserts
+// LossStats surfaces it summed across CPUs under the tolerated stage name —
+// mirroring the forced-reservation approach for the hard counter (OSS-4b R1 /
+// BPF-side test). This proves the new key is wired end to end without needing to
+// trigger a real userspace page fault from a test.
+func TestEventLossStats_pathReadFailedForced(t *testing.T) {
+	objs := loadObjsForTest(t)
+
+	nCPU, err := ebpf.PossibleCPU()
+	if err != nil {
+		t.Fatalf("PossibleCPU: %v", err)
+	}
+	vals := make([]uint64, nCPU)
+	var want uint64
+	for i := range vals {
+		vals[i] = uint64(i + 3)
+		want += vals[i]
+	}
+	// Key 1 == STAT_PATH_READ_FAILED.
+	if err := objs.EventLossStats.Put(uint32(1), vals); err != nil {
+		t.Fatalf("seed per-CPU path_read counter: %v", err)
+	}
+
+	p := &Probe{objs: *objs}
+	stats, err := p.LossStats()
+	if err != nil {
+		t.Fatalf("LossStats: %v", err)
+	}
+	if got := stats[manifest.ToleratedStagePathReadFailed]; got != want {
+		t.Errorf("summed path_read_failed: got %d, want %d (sum over %d CPUs)", got, want, nCPU)
+	}
+	// Forcing the tolerated counter must not bleed into the hard counter.
+	if got := stats[manifest.LossStageBPFReserveFailed]; got != 0 {
+		t.Errorf("bpf_reserve_failed should remain 0 when only path_read_failed seeded, got %d", got)
 	}
 }
 

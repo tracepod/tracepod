@@ -1,17 +1,17 @@
 {
   "schema_version": 3,
-  "container_id": "bd1ab33b85c0688d978f98e85e2b724505eae961f2ec622294ac8639aae3fa9f",
-  "profile_start": "2026-06-11T06:21:19.799946125Z",
-  "profile_end": "2026-06-11T06:21:23.806884047Z",
+  "container_id": "43cad3a701070c7735500f1da05f00ab257644452d1df781ed905d1c3d0e7f87",
+  "profile_start": "2026-06-11T19:51:11.156874904Z",
+  "profile_end": "2026-06-11T19:51:15.162774966Z",
   "coverage": {
     "process_start_observed": true,
-    "attach_time": "2026-06-11T06:21:19.799944541Z",
-    "first_exec_time": "2026-06-11T06:21:19.802019811Z"
+    "attach_time": "2026-06-11T19:51:11.156874196Z",
+    "first_exec_time": "2026-06-11T19:51:11.159369123Z"
   },
   "container_starts": [
     {
-      "container_id": "bd1ab33b85c0688d978f98e85e2b724505eae961f2ec622294ac8639aae3fa9f",
-      "timestamp": "2026-06-11T06:21:19.799946125Z"
+      "container_id": "43cad3a701070c7735500f1da05f00ab257644452d1df781ed905d1c3d0e7f87",
+      "timestamp": "2026-06-11T19:51:11.156874904Z"
     }
   ],
   "event_loss": {
@@ -20,6 +20,9 @@
       "bpf_reserve_failed": 0,
       "decode_failed": 0,
       "untracked_cgroup": 0
+    },
+    "tolerated": {
+      "path_read_failed": 0
     },
     "not_instrumented": []
   },
@@ -30,8 +33,8 @@
         "x",
         "m"
       ],
-      "first_seen": "2026-06-11T06:21:19.802019811Z",
-      "last_seen": "2026-06-11T06:21:19.80252916Z",
+      "first_seen": "2026-06-11T19:51:11.159369123Z",
+      "last_seen": "2026-06-11T19:51:11.159683286Z",
       "count": 1
     },
     "/etc/ld.so.cache": {
@@ -39,8 +42,8 @@
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:21:19.802840086Z",
-      "last_seen": "2026-06-11T06:21:19.802840086Z",
+      "first_seen": "2026-06-11T19:51:11.159878116Z",
+      "last_seen": "2026-06-11T19:51:11.159878116Z",
       "count": 1
     },
     "/lib/aarch64-linux-gnu/libm.so.6": {
@@ -49,8 +52,8 @@
         "r",
         "m"
       ],
-      "first_seen": "2026-06-11T06:21:19.802844419Z",
-      "last_seen": "2026-06-11T06:21:19.802970798Z",
+      "first_seen": "2026-06-11T19:51:11.15988195Z",
+      "last_seen": "2026-06-11T19:51:11.1598922Z",
       "count": 1
     },
     "/lib/libc.so.6": {
@@ -59,8 +62,8 @@
         "r",
         "m"
       ],
-      "first_seen": "2026-06-11T06:21:19.803175387Z",
-      "last_seen": "2026-06-11T06:21:19.803266432Z",
+      "first_seen": "2026-06-11T19:51:11.159901949Z",
+      "last_seen": "2026-06-11T19:51:11.160046614Z",
       "count": 1
     },
     "/lib/libm.so.6": {
@@ -69,8 +72,8 @@
         "r",
         "m"
       ],
-      "first_seen": "2026-06-11T06:21:19.802853461Z",
-      "last_seen": "2026-06-11T06:21:19.802970798Z",
+      "first_seen": "2026-06-11T19:51:11.159887283Z",
+      "last_seen": "2026-06-11T19:51:11.1598922Z",
       "count": 1
     },
     "/lib/libresolv.so.2": {
@@ -79,8 +82,8 @@
         "r",
         "m"
       ],
-      "first_seen": "2026-06-11T06:21:19.802995757Z",
-      "last_seen": "2026-06-11T06:21:19.803098135Z",
+      "first_seen": "2026-06-11T19:51:11.1598952Z",
+      "last_seen": "2026-06-11T19:51:11.159899658Z",
       "count": 1
     },
     "/usr/lib/aarch64-linux-gnu/libm.so.6": {
@@ -89,8 +92,8 @@
         "r",
         "m"
       ],
-      "first_seen": "2026-06-11T06:21:19.802850919Z",
-      "last_seen": "2026-06-11T06:21:19.802970798Z",
+      "first_seen": "2026-06-11T19:51:11.159884991Z",
+      "last_seen": "2026-06-11T19:51:11.1598922Z",
       "count": 1
     }
   }

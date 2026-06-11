@@ -417,11 +417,14 @@ point** and reports it in the profile's top-level `event_loss` block:
 
 ```jsonc
 "event_loss": {
-  "total": 0,                       // the gate: nonzero ⇒ this window was lossy
-  "by_stage": {                     // where the loss happened (diagnosis only)
+  "total": 0,                       // HARD-loss gate: nonzero ⇒ this window was lossy
+  "by_stage": {                     // where the hard loss happened (diagnosis only)
     "bpf_reserve_failed": 0,        // ring buffer full (the primary cause)
     "decode_failed": 0,             // malformed record skipped
     "untracked_cgroup": 0           // start/stop race
+  },
+  "tolerated": {                    // counted, consumer-gated, excluded from total
+    "path_read_failed": 1           // openat filename pointer faulted → open unidentified
   },
   "not_instrumented": []            // empty ⇒ every in-scope drop point was counted
 }
@@ -430,9 +433,21 @@ point** and reports it in the profile's top-level `event_loss` block:
 The counts are **window-level**, not per-container: a buffer drop cannot be
 attributed to one container, so any loss in a window taints every container
 observed in it (the conservative direction). `total: 0` is a positive claim
-("instrumented everywhere, lost nothing"), never "didn't count" — a drop point
-that could not be instrumented is named in `not_instrumented` instead of reading
-a false zero. See [profile-schema/README.md](profile-schema/README.md#event_loss-v3--window-level-event-loss-counters)
+("instrumented everywhere, lost nothing on the hard paths"), never "didn't count"
+— a drop point that could not be instrumented is named in `not_instrumented`
+instead of reading a false zero.
+
+The openat **path-read fault** (`bpf_probe_read_user_str()` faulting on the
+filename pointer before its page is present) is a real lost observation — the file
+open goes unidentified. As of schema v3 it is **counted as a tolerated category**
+(`event_loss.tolerated.path_read_failed`), not folded into `total`: it has a
+load-independent idle floor (0–2 per container) that would otherwise put a
+permanent floor under the strict-zero hard-loss gate and defeat it. A consumer
+gates it with its own configurable ceiling (never zero) and surfaces the count.
+(In OSS-4 this fault was *excluded* from the loss accounting entirely; OSS-4b made
+it visible-but-separately-gated, because "total 0, nothing reported" wrongly read
+as "nothing lost" while opens went unidentified.) See
+[profile-schema/README.md](profile-schema/README.md#event_loss-v3--window-level-event-loss-counters)
 for the full field reference, the loss-point audit, and consumer guidance.
 
 The limitation itself **remains**: loss can still happen under buffer pressure

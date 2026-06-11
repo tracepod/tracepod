@@ -187,21 +187,30 @@ func newRouter(p *probe.Probe, profileDir, controllerURL, nodeName string, resol
 }
 
 // ReadLoss reports the sensor's cumulative, process-wide event-loss counters
-// (manifest.LossReader). It sums the in-kernel per-CPU counters (reserve/read
-// failures), the consumer's decode failures, and the router's untracked-cgroup
-// drops. If the in-kernel counters cannot be read, their stages are reported
-// not_instrumented rather than as a false zero (schema-v3 zero-is-a-claim rule).
+// (manifest.LossReader). The in-kernel per-CPU counters span both loss classes —
+// the hard bpf_reserve_failed and the tolerated path_read_failed — so it routes
+// each by manifest.IsToleratedStage; it then adds the consumer's decode failures
+// and the router's untracked-cgroup drops (both hard, userspace). If the in-kernel
+// counters cannot be read, BOTH BPF-sourced stages are reported not_instrumented
+// rather than as a false zero (schema-v3 zero-is-a-claim rule).
 func (r *cgroupRouter) ReadLoss() manifest.LossReport {
 	by := make(map[string]uint64, len(manifest.LossStages))
+	tol := make(map[string]uint64, len(manifest.ToleratedStages))
 	var notInstrumented []string
 
 	if bpf, err := r.probe.LossStats(); err == nil {
 		for k, v := range bpf {
-			by[k] = v
+			if manifest.IsToleratedStage(k) {
+				tol[k] = v
+			} else {
+				by[k] = v
+			}
 		}
 	} else {
 		fmt.Fprintf(os.Stderr, "sensor: event_loss BPF counters unreadable (%v) — reporting not_instrumented\n", err)
-		notInstrumented = append(notInstrumented, manifest.LossStageBPFReserveFailed)
+		// Every BPF-sourced stage (hard and tolerated) is uncountable this read.
+		notInstrumented = append(notInstrumented,
+			manifest.LossStageBPFReserveFailed, manifest.ToleratedStagePathReadFailed)
 	}
 
 	if r.consumer != nil {
@@ -212,7 +221,7 @@ func (r *cgroupRouter) ReadLoss() manifest.LossReport {
 
 	by[manifest.LossStageUntrackedCgroup] = r.untrackedCgroup.Load()
 
-	return manifest.LossReport{ByStage: by, NotInstrumented: notInstrumented}
+	return manifest.LossReport{ByStage: by, Tolerated: tol, NotInstrumented: notInstrumented}
 }
 
 // onContainerStart is called by the NRI plugin when a container's cgroup ID

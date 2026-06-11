@@ -32,7 +32,12 @@ import (
 var publishedSchemaHashes = map[string]string{
 	"v1.schema.json": "aa63c9640ff9f22e46527be3ff535ff419fe5a66cbefccfc49179f18361ae974",
 	"v2.schema.json": "8b518b4357e3d441a4e6590a35e6e1082f36d8d987e7a71fd5f8d555f4a175ec",
-	"v3.schema.json": "d02f59719ff70799a793b08b9c457db3cbd26de8e0371f3ecec4bb77b00e576c",
+	// v3 was revised IN PLACE on 2026-06-11 (OSS-4b) to add the event_loss.tolerated
+	// category, before any consumer of v3 existed — a one-time exception to the
+	// frozen-schema rule, documented in docs/profile-schema/README.md. This is the
+	// hash of the revised v3; the pre-revision hash was
+	// d02f59719ff70799a793b08b9c457db3cbd26de8e0371f3ecec4bb77b00e576c.
+	"v3.schema.json": "d1aa1d007375aca1454be664c3a390ec1f0ed3a1ddc6801716b4cce1efa08a75",
 }
 
 const schemaDir = "../docs/profile-schema"

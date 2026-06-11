@@ -6,10 +6,12 @@ import (
 	"github.com/tracepod/tracepod/manifest"
 )
 
-// fakeLossReader is a programmable manifest.LossReader. Tests mutate byStage
-// between the baseline read (SetLossReader) and the snapshot read to inject loss.
+// fakeLossReader is a programmable manifest.LossReader. Tests mutate byStage /
+// tolerated between the baseline read (SetLossReader) and the snapshot read to
+// inject loss.
 type fakeLossReader struct {
 	byStage         map[string]uint64
+	tolerated       map[string]uint64
 	notInstrumented []string
 }
 
@@ -18,7 +20,14 @@ func (f *fakeLossReader) ReadLoss() manifest.LossReport {
 	for k, v := range f.byStage {
 		cp[k] = v
 	}
-	return manifest.LossReport{ByStage: cp, NotInstrumented: append([]string(nil), f.notInstrumented...)}
+	var tol map[string]uint64
+	if f.tolerated != nil {
+		tol = make(map[string]uint64, len(f.tolerated))
+		for k, v := range f.tolerated {
+			tol[k] = v
+		}
+	}
+	return manifest.LossReport{ByStage: cp, Tolerated: tol, NotInstrumented: append([]string(nil), f.notInstrumented...)}
 }
 
 func sumByStage(by map[string]uint64) uint64 {
@@ -101,7 +110,8 @@ func TestEventLoss_zeroIsAClaim_fullyInstrumented(t *testing.T) {
 }
 
 // TestEventLoss_noReaderIsNotInstrumented: an aggregator with no reader did not
-// count — it must report every stage as not_instrumented, never a false zero.
+// count — it must report every stage (hard AND tolerated) as not_instrumented,
+// never a false zero.
 func TestEventLoss_noReaderIsNotInstrumented(t *testing.T) {
 	a := manifest.NewAggregator("c", "")
 	el := a.Snapshot().EventLoss
@@ -112,10 +122,14 @@ func TestEventLoss_noReaderIsNotInstrumented(t *testing.T) {
 	if len(el.ByStage) != 0 {
 		t.Errorf("by_stage must be empty when uninstrumented (no false zeros), got %v", el.ByStage)
 	}
-	if len(el.NotInstrumented) != len(manifest.LossStages) {
-		t.Fatalf("not_instrumented must list all %d stages, got %v", len(manifest.LossStages), el.NotInstrumented)
+	if len(el.Tolerated) != 0 {
+		t.Errorf("tolerated must be empty when uninstrumented (no false zeros), got %v", el.Tolerated)
 	}
-	for _, st := range manifest.LossStages {
+	wantN := len(manifest.LossStages) + len(manifest.ToleratedStages)
+	if len(el.NotInstrumented) != wantN {
+		t.Fatalf("not_instrumented must list all %d stages (hard+tolerated), got %v", wantN, el.NotInstrumented)
+	}
+	for _, st := range append(append([]string{}, manifest.LossStages...), manifest.ToleratedStages...) {
 		found := false
 		for _, n := range el.NotInstrumented {
 			if n == st {
@@ -125,6 +139,121 @@ func TestEventLoss_noReaderIsNotInstrumented(t *testing.T) {
 		if !found {
 			t.Errorf("stage %q missing from not_instrumented", st)
 		}
+	}
+}
+
+// TestEventLoss_toleratedAccumulatesAndExcludedFromTotal: a tolerated stage is
+// counted as a per-window delta in tolerated, present even at zero, and NEVER
+// folded into total — the strict-zero gate on hard losses keeps passing while
+// path_read_failed is nonzero. (R1/R2: the core invariant of this amendment.)
+func TestEventLoss_toleratedAccumulatesAndExcludedFromTotal(t *testing.T) {
+	r := &fakeLossReader{
+		byStage: map[string]uint64{
+			manifest.LossStageBPFReserveFailed: 5,
+			manifest.LossStageDecodeFailed:     0,
+			manifest.LossStageUntrackedCgroup:  0,
+		},
+		tolerated: map[string]uint64{
+			manifest.ToleratedStagePathReadFailed: 10, // pre-window floor — must NOT count
+		},
+	}
+	a := manifest.NewAggregator("c", "")
+	a.SetLossReader(r) // baseline captured here
+
+	// Only tolerated loss accrues during the window; no hard loss.
+	r.tolerated[manifest.ToleratedStagePathReadFailed] = 12 // +2 (the idle floor)
+
+	el := a.Snapshot().EventLoss
+
+	if got := el.Tolerated[manifest.ToleratedStagePathReadFailed]; got != 2 {
+		t.Errorf("tolerated.path_read_failed: got %d, want 2 (per-window delta)", got)
+	}
+	// The strict-zero gate on hard losses must still read zero.
+	if el.Total != 0 {
+		t.Errorf("total must exclude tolerated losses: got %d, want 0", el.Total)
+	}
+	if el.Total != sumByStage(el.ByStage) {
+		t.Errorf("sum invariant: total=%d != sum(by_stage)=%d", el.Total, sumByStage(el.ByStage))
+	}
+	if len(el.NotInstrumented) != 0 {
+		t.Errorf("not_instrumented should be empty when fully instrumented, got %v", el.NotInstrumented)
+	}
+	// Every tolerated stage must be explicitly present (a 0 is a claim).
+	for _, st := range manifest.ToleratedStages {
+		if _, ok := el.Tolerated[st]; !ok {
+			t.Errorf("tolerated stage %q missing — an instrumented stage must report its (possibly zero) count", st)
+		}
+	}
+}
+
+// TestEventLoss_pathReadFailedOnlyInTolerated is the regression guard for OSS-4b:
+// path_read_failed must appear in tolerated and in NO other bucket (not by_stage,
+// not not_instrumented) when fully instrumented, and must never move total.
+func TestEventLoss_pathReadFailedOnlyInTolerated(t *testing.T) {
+	r := &fakeLossReader{
+		byStage: map[string]uint64{
+			manifest.LossStageBPFReserveFailed: 0,
+			manifest.LossStageDecodeFailed:     0,
+			manifest.LossStageUntrackedCgroup:  0,
+		},
+		tolerated: map[string]uint64{manifest.ToleratedStagePathReadFailed: 0},
+	}
+	a := manifest.NewAggregator("c", "")
+	a.SetLossReader(r)
+	r.tolerated[manifest.ToleratedStagePathReadFailed] = 999
+
+	el := a.Snapshot().EventLoss
+
+	if _, ok := el.Tolerated[manifest.ToleratedStagePathReadFailed]; !ok {
+		t.Error("path_read_failed must appear in tolerated")
+	}
+	if el.Tolerated[manifest.ToleratedStagePathReadFailed] != 999 {
+		t.Errorf("tolerated.path_read_failed: got %d, want 999", el.Tolerated[manifest.ToleratedStagePathReadFailed])
+	}
+	if _, ok := el.ByStage[manifest.ToleratedStagePathReadFailed]; ok {
+		t.Error("path_read_failed must NOT appear in by_stage")
+	}
+	for _, n := range el.NotInstrumented {
+		if n == manifest.ToleratedStagePathReadFailed {
+			t.Error("path_read_failed must NOT appear in not_instrumented when instrumented")
+		}
+	}
+	if el.Total != 0 {
+		t.Errorf("total must be 0 (path_read_failed excluded), got %d", el.Total)
+	}
+}
+
+// TestEventLoss_toleratedNotInstrumented: when the reader cannot read the
+// tolerated counter, it is listed in not_instrumented and absent from tolerated —
+// never a false zero (the zero-is-a-claim rule applies to tolerated stages too).
+func TestEventLoss_toleratedNotInstrumented(t *testing.T) {
+	r := &fakeLossReader{
+		byStage: map[string]uint64{
+			manifest.LossStageBPFReserveFailed: 0,
+			manifest.LossStageDecodeFailed:     0,
+			manifest.LossStageUntrackedCgroup:  0,
+		},
+		notInstrumented: []string{manifest.ToleratedStagePathReadFailed},
+	}
+	a := manifest.NewAggregator("c", "")
+	a.SetLossReader(r)
+
+	el := a.Snapshot().EventLoss
+
+	if _, ok := el.Tolerated[manifest.ToleratedStagePathReadFailed]; ok {
+		t.Error("uninstrumented path_read_failed must not appear in tolerated as a false zero")
+	}
+	found := false
+	for _, n := range el.NotInstrumented {
+		if n == manifest.ToleratedStagePathReadFailed {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("path_read_failed must be listed in not_instrumented, got %v", el.NotInstrumented)
+	}
+	if el.Total != 0 {
+		t.Errorf("total: got %d, want 0", el.Total)
 	}
 }
 

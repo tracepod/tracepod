@@ -12,7 +12,7 @@ This directory holds the formal JSON Schema for each published version:
 |------|---------|--------|------------------------|
 | [`v1.schema.json`](v1.schema.json) | 1 | legacy (retained) | string `"1"` |
 | [`v2.schema.json`](v2.schema.json) | 2 | legacy (retained) | integer `2` |
-| [`v3.schema.json`](v3.schema.json) | 3 | **current** | integer `3` |
+| [`v3.schema.json`](v3.schema.json) | 3 | **current** (revised in place 2026-06-11, see note) | integer `3` |
 
 ## Versioning policy
 
@@ -37,6 +37,17 @@ This directory holds the formal JSON Schema for each published version:
    schema with `additionalProperties: false`. Together these make an
    un-versioned shape change fail CI: you cannot change the assembled document
    without either the conformance test or the frozen-hash test going red.
+
+> **v3-revision note (2026-06-11, OSS-4b) — one-time exception, NOT precedent.**
+> v3 was revised *in place* to add the `event_loss.tolerated` category (the openat
+> path-read fault, previously documented as out-of-scope, is now a counted but
+> separately-gated tolerated loss). This breaks the frozen-schema rule above
+> deliberately and exactly once: it was done **before any consumer of v3 existed**
+> (controller ingest of `event_loss` was unwritten at the time), so no deployed
+> reader could observe the change. The drift hash in `publishedSchemaHashes` was
+> regenerated accordingly. This is **not** a precedent: once anything consumes a
+> published version, any shape change requires a new `v<N+1>.schema.json` and a
+> `SchemaVersion` bump per the policy above — no further in-place edits to v3.
 
 ## Legacy profiles (consumer guidance)
 
@@ -132,11 +143,14 @@ start the sensor witnessed during the window via the NRI `StartContainer` hook
 
 ```jsonc
 "event_loss": {
-  "total": 0,
+  "total": 0,                       // HARD losses only — the strict-zero gate
   "by_stage": {
     "bpf_reserve_failed": 0,
     "decode_failed": 0,
     "untracked_cgroup": 0
+  },
+  "tolerated": {                    // counted, gated by the CONSUMER, never in total
+    "path_read_failed": 1
   },
   "not_instrumented": []
 }
@@ -144,9 +158,23 @@ start the sensor witnessed during the window via the NRI `StartContainer` hook
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `total` | integer ≥0 | Sum of all `by_stage` counts. **The consumer gate.** |
-| `by_stage` | object | Per-stage counts, keyed by audited loss-point name. A stage present with value `0` is an explicit "counted, lost nothing". |
-| `not_instrumented` | array | Audited loss points **not** counted this window (the escape hatch). Empty in the normal case. |
+| `total` | integer ≥0 | Sum of all `by_stage` counts (**hard losses only**; excludes `tolerated`). **The strict-zero consumer gate.** |
+| `by_stage` | object | Per-stage **hard**-loss counts, keyed by audited loss-point name. Their values sum to `total`. A stage present with value `0` is an explicit "counted, lost nothing". |
+| `tolerated` | object | Per-stage **tolerated**-loss counts (e.g. `path_read_failed`). Counted observations lost for reasons with a known intrinsic floor — **excluded from `total`** and gated separately by the consumer. See below. |
+| `not_instrumented` | array | Audited loss points (hard or tolerated) **not** counted this window (the escape hatch). Empty in the normal case. |
+
+**Semantics a consumer must honour (verbatim):**
+
+- `total` = Σ `by_stage` only — hard losses; the strict-zero contract is that a
+  clean window reports `total: 0` and only then may "not observed ⇒ not loaded" be
+  read.
+- `tolerated` stages are counted observations lost for reasons with a known
+  intrinsic floor; consumers **MUST** gate them with their own (conservative,
+  configurable) ceiling and **MUST** surface the counts in any evidence they emit
+  — never fold them into `total`, never ignore them.
+- `not_instrumented` is reserved for in-scope points that could not be counted; it
+  is **empty** in this sensor as of schema v3 (every audited point — hard and
+  tolerated — is instrumented).
 
 **The sensor reports; the consumer judges.** There is no score, threshold, or
 interpretation in this block — only counts.
@@ -163,51 +191,82 @@ intentional double-attribution, not a bug: it is never wrong to *suspect* loss.
 **Consumer guidance (the reason this block exists).** The coverage score's
 discovery-plateau component rises when path discovery flattens — but dropped
 events make a busy window *look* flat, so the score can rise exactly when
-observation quality fell. Therefore: **treat any nonzero `event_loss.total` as
-grounds to withhold "not observed ⇒ not loaded" conclusions for the whole
-window** — i.e. do not promote files/containers in that window to "not affected"
-on the strength of *absence* of observation. Gate on `total`; use `by_stage`
-only to diagnose *where* the loss happened. This mirrors the missed-start floor:
-above a loss threshold, no `not_affected` promotion.
+observation quality fell. Therefore:
 
-**Zero is a claim.** `total: 0` means "instrumented at every audited loss point
-and nothing was lost" — it never means "we didn't count." Every stage the sensor
-instruments appears in `by_stage` (at `0` if clean). A loss point that *could
-not* be instrumented for a window (e.g. a runtime failure reading the in-kernel
-counter) is named in `not_instrumented` and **omitted** from `by_stage`, so it
-can never masquerade as a zero. A consumer seeing a non-empty `not_instrumented`
-should treat those stages as *unknown*, not *clean*.
+- **Hard losses (`total` / `by_stage`): gate at zero.** Treat any nonzero
+  `event_loss.total` as grounds to withhold "not observed ⇒ not loaded"
+  conclusions for the whole window — i.e. do not promote files/containers in that
+  window to "not affected" on the strength of *absence* of observation. Use
+  `by_stage` only to diagnose *where* the loss happened. This mirrors the
+  missed-start floor: above a loss threshold, no `not_affected` promotion.
+- **Tolerated losses (`tolerated`): gate at a configurable ceiling, never at
+  zero.** These have a known nonzero intrinsic floor, so a strict-zero gate would
+  fire on every window and is wrong. Set a conservative, **configurable** ceiling
+  (see the suggested default below) and withhold "not loaded" conclusions only
+  when a tolerated count exceeds it. Crucially, do **not** treat tolerated losses
+  as free: each is a file open that went unidentified. **Always print the
+  tolerated counts in any evidence/report you emit**, even when below the ceiling,
+  so a reviewer sees that some observations were lost — `total: 0` with a nonzero
+  `tolerated.path_read_failed` means "no hard loss, but N opens went
+  unidentified", not "nothing lost".
+
+> **Suggested default ceiling for `path_read_failed`.** Measured behaviour: the
+> idle floor is **0–2** per container-window; a memory-pressure probe (free RAM
+> driven to ~80 MB under `stress-ng --vm`) did **not** move it off the floor — the
+> openat filename string is small and hot, not the kind of page anonymous memory
+> pressure evicts. The only condition that drove it large (~10⁴) was an extreme
+> ring-buffer-starvation storm, where `total` (hard losses) is already firing. So a
+> **dual, configurable** gate is recommended, defaulting to: trip when
+> `path_read_failed > 16` (8× the floor) **and/or** when
+> `path_read_failed / Σ files[].count > 0.01` (1% of observed opens). The fraction
+> guard matters because the fault tracks total open *volume*, not memory footprint,
+> so an absolute-only ceiling would false-fire on high-throughput workloads. The
+> sensor reports the data; the consumer owns the threshold and must keep it
+> configurable.
+
+**Zero is a claim.** `total: 0` means "instrumented at every audited **hard** loss
+point and nothing was lost there" — it never means "we didn't count." Every stage
+the sensor instruments appears in `by_stage` / `tolerated` (at `0` if clean). A
+loss point that *could not* be instrumented for a window (e.g. a runtime failure
+reading the in-kernel counter) is named in `not_instrumented` and **omitted** from
+`by_stage`/`tolerated`, so it can never masquerade as a zero. A consumer seeing a
+non-empty `not_instrumented` should treat those stages as *unknown*, not *clean*.
 
 #### Loss-point audit (the stages)
 
 Every point on the path from the BPF programs to the assembled profile where an
 event can be dropped, and how each is counted:
 
-| Stage | Where | Counted | What it means |
-|-------|-------|---------|---------------|
-| `bpf_reserve_failed` | BPF programs (all 3 kprobes) | in-kernel per-CPU map | `bpf_ringbuf_reserve()` returned `NULL` — the ring was full because userspace was not draining fast enough. **The primary buffer-pressure loss point.** |
-| `decode_failed` | userspace ring-buffer consumer | userspace atomic | a committed record was too short/malformed to decode into an event and was skipped. |
-| `untracked_cgroup` | userspace router | userspace atomic | the kernel emitted an event for an allowed cgroup that arrived with no live aggregator — the brief race between the BPF allowlist and the userspace aggregator map at container start/stop. |
+| Stage | Class | Where | Counted | What it means |
+|-------|-------|-------|---------|---------------|
+| `bpf_reserve_failed` | hard (`total`) | BPF programs (all 3 kprobes) | in-kernel per-CPU map | `bpf_ringbuf_reserve()` returned `NULL` — the ring was full because userspace was not draining fast enough. **The primary buffer-pressure loss point.** |
+| `decode_failed` | hard (`total`) | userspace ring-buffer consumer | userspace atomic | a committed record was too short/malformed to decode into an event and was skipped. |
+| `untracked_cgroup` | hard (`total`) | userspace router | userspace atomic | the kernel emitted an event for an allowed cgroup that arrived with no live aggregator — the brief race between the BPF allowlist and the userspace aggregator map at container start/stop. |
+| `path_read_failed` | **tolerated** | openat BPF kprobe | in-kernel per-CPU map | `bpf_probe_read_user_str()` faulted on the userspace filename pointer (e.g. the page is not yet present): the reservation succeeded but the path was unreadable, so the open went **unidentified**. See below. |
 
-The BPF-side stage **must** be counted in the kernel (a per-CPU array, read at
-profile finalisation): userspace never sees a reservation that never happened, so
-a userspace counter there would silently read zero — a false zero. The counters
-are themselves loss-proof: an in-kernel per-CPU array increment cannot be
-dropped, and the userspace counters are atomic.
+The BPF-side stages **must** be counted in the kernel (a per-CPU array, read at
+profile finalisation): userspace never sees a reservation that never happened, nor
+a discard the kernel performed, so a userspace counter there would silently read
+zero — a false zero. The counters are themselves loss-proof: an in-kernel per-CPU
+array increment cannot be dropped, and the userspace counters are atomic.
 
-**Considered but not counted — `bpf_read_failed`.** The openat kprobe can also
-discard an event when `bpf_probe_read_user_str()` faults on the userspace
-filename pointer (e.g. the page is not yet present): the reservation succeeded
-but the path was unreadable, so the open goes unrecorded. This is a real drop,
-but it is a *path-read fault*, a different class from the capacity/transport
-drops above, and it has a **load-independent nonzero floor** — 0–2 per container
-even at idle. Folding it into `total` would put a permanent floor under the
-lossy-window gate (every window would look lossy) and defeat the signal, while
-the dominant, load-correlated loss (`bpf_reserve_failed`) is fully counted —
-under the induced-loss storm reserve failures outnumber read faults by ~100:1. It
-is therefore **out of scope for `event_loss`** and intentionally not surfaced. It
-is *not* placed in `not_instrumented`, which is reserved for in-scope points that
-could not be counted — not for points deliberately scoped out.
+**Tolerated category — `path_read_failed`.** The openat kprobe discards an event
+when `bpf_probe_read_user_str()` faults on the userspace filename pointer (e.g.
+the page is not yet present): the reservation succeeded but the path was
+unreadable, so the open goes **unidentified** — a real lost observation. It is
+counted (a consumer must not be told `total: 0` and conclude "nothing lost" while
+file opens went unidentified). But it is a *path-read fault*, a different class
+from the capacity/transport drops above, with a **load-independent nonzero floor**
+— 0–2 per container even at idle. Folding it into `total` would put a permanent
+floor under the strict-zero gate on hard losses (every window would look lossy)
+and defeat it; the dominant, load-correlated loss (`bpf_reserve_failed`) is fully
+counted under `total` — under the induced-loss storm reserve failures outnumber
+read faults by ~100:1. It therefore lives in `tolerated`, **visible but separately
+gated by the consumer** (gate at a configurable ceiling, never zero; always
+surface the count). It is *not* placed in `not_instrumented`: as of schema v3 it
+**is** instrumented. (Whether the floor stays bounded under memory pressure is the
+open question the consumer's ceiling must be configured for — see the recorded
+memory-pressure data.)
 
 **No `reader` stage.** The sensor uses a BPF **ring buffer** (`BPF_MAP_TYPE_RINGBUF`),
 not a perf buffer. The `cilium/ebpf` ring-buffer reader has no lost-sample

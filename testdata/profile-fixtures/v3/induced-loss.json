@@ -1,25 +1,28 @@
 {
   "schema_version": 3,
-  "container_id": "0594aec1cbab8937a47c30297cf6cfe896fba8446f516a32c39a92297e2ba9d4",
-  "profile_start": "2026-06-11T06:22:46.93742041Z",
-  "profile_end": "2026-06-11T06:23:47.912690541Z",
+  "container_id": "2a47e70d5e36d3c3e5199858ddd75a65567c140d23eea7251a66b605210085f9",
+  "profile_start": "2026-06-11T19:52:13.786807667Z",
+  "profile_end": "2026-06-11T19:53:14.824402363Z",
   "coverage": {
     "process_start_observed": true,
-    "attach_time": "2026-06-11T06:22:46.937419744Z",
-    "first_exec_time": "2026-06-11T06:22:46.939652438Z"
+    "attach_time": "2026-06-11T19:52:13.786806917Z",
+    "first_exec_time": "2026-06-11T19:52:13.789184325Z"
   },
   "container_starts": [
     {
-      "container_id": "0594aec1cbab8937a47c30297cf6cfe896fba8446f516a32c39a92297e2ba9d4",
-      "timestamp": "2026-06-11T06:22:46.93742041Z"
+      "container_id": "2a47e70d5e36d3c3e5199858ddd75a65567c140d23eea7251a66b605210085f9",
+      "timestamp": "2026-06-11T19:52:13.786807667Z"
     }
   ],
   "event_loss": {
-    "total": 1227188,
+    "total": 1202224,
     "by_stage": {
-      "bpf_reserve_failed": 1227188,
+      "bpf_reserve_failed": 1202224,
       "decode_failed": 0,
       "untracked_cgroup": 0
+    },
+    "tolerated": {
+      "path_read_failed": 10247
     },
     "not_instrumented": []
   },
@@ -29,9 +32,9 @@
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.941080068Z",
-      "last_seen": "2026-06-11T06:23:47.901247678Z",
-      "count": 7814
+      "first_seen": "2026-06-11T19:52:13.791321566Z",
+      "last_seen": "2026-06-11T19:53:14.801015812Z",
+      "count": 7874
     },
     "/bin/ls": {
       "source": "direct",
@@ -39,9 +42,9 @@
         "x",
         "m"
       ],
-      "first_seen": "2026-06-11T06:22:46.940797326Z",
-      "last_seen": "2026-06-11T06:23:47.901015849Z",
-      "count": 8432
+      "first_seen": "2026-06-11T19:52:13.790945693Z",
+      "last_seen": "2026-06-11T19:53:14.800590565Z",
+      "count": 8041
     },
     "/bin/sh": {
       "source": "direct",
@@ -49,8 +52,8 @@
         "x",
         "m"
       ],
-      "first_seen": "2026-06-11T06:22:46.939652438Z",
-      "last_seen": "2026-06-11T06:22:46.939975555Z",
+      "first_seen": "2026-06-11T19:52:13.789184325Z",
+      "last_seen": "2026-06-11T19:52:13.789509657Z",
       "count": 1
     },
     "/etc": {
@@ -58,99 +61,99 @@
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.944189907Z",
-      "last_seen": "2026-06-11T06:23:47.9079068Z",
-      "count": 9905
+      "first_seen": "2026-06-11T19:52:13.793840557Z",
+      "last_seen": "2026-06-11T19:53:14.810569564Z",
+      "count": 9725
     },
     "/etc/group": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.943608921Z",
-      "last_seen": "2026-06-11T06:23:47.901608129Z",
-      "count": 23266
+      "first_seen": "2026-06-11T19:52:13.793329475Z",
+      "last_seen": "2026-06-11T19:53:14.816781928Z",
+      "count": 22299
     },
     "/etc/ld.so.cache": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.940182466Z",
-      "last_seen": "2026-06-11T06:23:47.901041515Z",
-      "count": 6809
+      "first_seen": "2026-06-11T19:52:13.78994028Z",
+      "last_seen": "2026-06-11T19:53:14.800633898Z",
+      "count": 6803
     },
     "/etc/localtime": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.943852457Z",
-      "last_seen": "2026-06-11T06:23:47.901610921Z",
-      "count": 10874
+      "first_seen": "2026-06-11T19:52:13.793380517Z",
+      "last_seen": "2026-06-11T19:53:14.810241191Z",
+      "count": 10471
     },
     "/etc/network": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.9444419Z",
-      "last_seen": "2026-06-11T06:23:47.907931133Z",
-      "count": 9838
+      "first_seen": "2026-06-11T19:52:13.793950056Z",
+      "last_seen": "2026-06-11T19:53:14.810599272Z",
+      "count": 9706
     },
     "/etc/network/if-down.d": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.944450859Z",
-      "last_seen": "2026-06-11T06:23:47.907937257Z",
-      "count": 9788
+      "first_seen": "2026-06-11T19:52:13.793953015Z",
+      "last_seen": "2026-06-11T19:53:14.810601855Z",
+      "count": 9647
     },
     "/etc/network/if-post-down.d": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.944454942Z",
-      "last_seen": "2026-06-11T06:23:47.902020788Z",
-      "count": 9709
+      "first_seen": "2026-06-11T19:52:13.793958765Z",
+      "last_seen": "2026-06-11T19:53:14.810666521Z",
+      "count": 9541
     },
     "/etc/network/if-pre-up.d": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.944457233Z",
-      "last_seen": "2026-06-11T06:23:47.902023455Z",
-      "count": 9570
+      "first_seen": "2026-06-11T19:52:13.79396164Z",
+      "last_seen": "2026-06-11T19:53:14.810695438Z",
+      "count": 9399
     },
     "/etc/network/if-up.d": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.944459442Z",
-      "last_seen": "2026-06-11T06:23:47.902057579Z",
-      "count": 9458
+      "first_seen": "2026-06-11T19:52:13.793964265Z",
+      "last_seen": "2026-06-11T19:53:14.810702438Z",
+      "count": 9304
     },
     "/etc/passwd": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.943606171Z",
-      "last_seen": "2026-06-11T06:23:47.901605296Z",
-      "count": 23605
+      "first_seen": "2026-06-11T19:52:13.793326809Z",
+      "last_seen": "2026-06-11T19:53:14.816777511Z",
+      "count": 22674
     },
     "/lib": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.945127133Z",
-      "last_seen": "2026-06-11T06:23:47.907939799Z",
-      "count": 9354
+      "first_seen": "2026-06-11T19:52:13.793966723Z",
+      "last_seen": "2026-06-11T19:53:14.810704896Z",
+      "count": 9226
     },
     "/lib/aarch64-linux-gnu/libm.so.6": {
       "source": "direct",
@@ -158,9 +161,9 @@
         "r",
         "m"
       ],
-      "first_seen": "2026-06-11T06:22:46.940185841Z",
-      "last_seen": "2026-06-11T06:23:47.901052682Z",
-      "count": 6453
+      "first_seen": "2026-06-11T19:52:13.78998328Z",
+      "last_seen": "2026-06-11T19:53:14.800656523Z",
+      "count": 6497
     },
     "/lib/libc.so.6": {
       "source": "direct",
@@ -168,9 +171,9 @@
         "r",
         "m"
       ],
-      "first_seen": "2026-06-11T06:22:46.940270964Z",
-      "last_seen": "2026-06-11T06:23:47.901138847Z",
-      "count": 6428
+      "first_seen": "2026-06-11T19:52:13.790454445Z",
+      "last_seen": "2026-06-11T19:53:14.800684814Z",
+      "count": 6630
     },
     "/lib/libm.so.6": {
       "source": "direct",
@@ -178,9 +181,9 @@
         "r",
         "m"
       ],
-      "first_seen": "2026-06-11T06:22:46.940192382Z",
-      "last_seen": "2026-06-11T06:23:47.901052682Z",
-      "count": 5783
+      "first_seen": "2026-06-11T19:52:13.790059696Z",
+      "last_seen": "2026-06-11T19:53:14.800656523Z",
+      "count": 5748
     },
     "/lib/libresolv.so.2": {
       "source": "direct",
@@ -188,36 +191,36 @@
         "r",
         "m"
       ],
-      "first_seen": "2026-06-11T06:22:46.940201091Z",
-      "last_seen": "2026-06-11T06:23:47.901062306Z",
-      "count": 5928
+      "first_seen": "2026-06-11T19:52:13.790303695Z",
+      "last_seen": "2026-06-11T19:53:14.800670523Z",
+      "count": 6092
     },
     "/proc": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.94513005Z",
-      "last_seen": "2026-06-11T06:23:47.907942299Z",
-      "count": 9475
+      "first_seen": "2026-06-11T19:52:13.794003098Z",
+      "last_seen": "2026-06-11T19:53:14.810797895Z",
+      "count": 9246
     },
     "/usr": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.962197287Z",
-      "last_seen": "2026-06-11T06:23:47.899948828Z",
-      "count": 12319
+      "first_seen": "2026-06-11T19:52:13.80951208Z",
+      "last_seen": "2026-06-11T19:53:14.816771886Z",
+      "count": 11771
     },
     "/usr/bin": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.962287535Z",
-      "last_seen": "2026-06-11T06:23:47.899986077Z",
-      "count": 12128
+      "first_seen": "2026-06-11T19:52:13.809571121Z",
+      "last_seen": "2026-06-11T19:53:14.816786178Z",
+      "count": 11550
     },
     "/usr/lib/aarch64-linux-gnu/libm.so.6": {
       "source": "direct",
@@ -225,18 +228,18 @@
         "r",
         "m"
       ],
-      "first_seen": "2026-06-11T06:22:46.940189216Z",
-      "last_seen": "2026-06-11T06:23:47.901052682Z",
-      "count": 6155
+      "first_seen": "2026-06-11T19:52:13.790004571Z",
+      "last_seen": "2026-06-11T19:53:14.800656523Z",
+      "count": 6178
     },
     "/usr/sbin": {
       "source": "direct",
       "access_modes": [
         "r"
       ],
-      "first_seen": "2026-06-11T06:22:46.962290243Z",
-      "last_seen": "2026-06-11T06:23:47.899988702Z",
-      "count": 12094
+      "first_seen": "2026-06-11T19:52:13.809605329Z",
+      "last_seen": "2026-06-11T19:53:14.816807427Z",
+      "count": 11539
     }
   }
 }
