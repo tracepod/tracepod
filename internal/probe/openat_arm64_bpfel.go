@@ -64,6 +64,7 @@ type openatProgramSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type openatMapSpecs struct {
 	AllowedCgroups *ebpf.MapSpec `ebpf:"allowed_cgroups"`
+	EventLossStats *ebpf.MapSpec `ebpf:"event_loss_stats"`
 	Events         *ebpf.MapSpec `ebpf:"events"`
 }
 
@@ -94,12 +95,14 @@ func (o *openatObjects) Close() error {
 // It can be passed to loadOpenatObjects or ebpf.CollectionSpec.LoadAndAssign.
 type openatMaps struct {
 	AllowedCgroups *ebpf.Map `ebpf:"allowed_cgroups"`
+	EventLossStats *ebpf.Map `ebpf:"event_loss_stats"`
 	Events         *ebpf.Map `ebpf:"events"`
 }
 
 func (m *openatMaps) Close() error {
 	return _OpenatClose(
 		m.AllowedCgroups,
+		m.EventLossStats,
 		m.Events,
 	)
 }

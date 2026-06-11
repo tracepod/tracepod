@@ -177,18 +177,24 @@ if [ "$MANIFEST_SIZE" -lt 100 ]; then
   exit 1
 fi
 
-# ── Phase 5b: schema v2 assertions ─────────────────────────────────────────────
-# The recorded run must carry the current integer schema_version and the v2
-# coverage markers (R2/R3). nginx is started AFTER the sensor here, so the
-# process-start marker may be true or false depending on the startup race — we
-# assert the field is present and boolean, not a specific value. The dedicated
-# missed-start (always-false) and restart (start-count) scenarios are exercised
-# by hack/record-profile-fixtures.sh (fx-restart) and the manifest unit tests.
+# ── Phase 5b: schema v3 assertions ─────────────────────────────────────────────
+# The recorded run must carry the current integer schema_version, the v2
+# coverage markers (R2/R3), and the v3 event_loss block. nginx is started AFTER
+# the sensor here, so the process-start marker may be true or false depending on
+# the startup race — we assert the field is present and boolean, not a specific
+# value. The dedicated missed-start (always-false) and restart (start-count)
+# scenarios, plus the induced-loss (event_loss.total > 0) scenario, are exercised
+# by hack/record-profile-fixtures.sh and the manifest unit tests.
+#
+# This nginx run uses the default ring buffer and a light workload, so event_loss
+# must be a TRUE ZERO: total == 0, every audited stage instrumented (present in
+# by_stage), and nothing listed not_instrumented. A nonzero total here would be a
+# real regression in drain throughput, not a flaky test.
 if command -v jq >/dev/null 2>&1; then
-  info "Phase 5b: asserting schema v2 shape on ${MANIFEST}"
+  info "Phase 5b: asserting schema v3 shape on ${MANIFEST}"
   VER=$(jq -r '.schema_version' "$MANIFEST")
-  if [ "$VER" != "2" ]; then
-    fail "schema_version=${VER}, want integer 2"; exit 1
+  if [ "$VER" != "3" ]; then
+    fail "schema_version=${VER}, want integer 3"; exit 1
   fi
   PSO=$(jq -r '.coverage.process_start_observed' "$MANIFEST")
   case "$PSO" in
@@ -200,8 +206,24 @@ if command -v jq >/dev/null 2>&1; then
     fail "container_starts must have >=1 entry, got ${STARTS}"; exit 1
   fi
   info "container_starts entries: ${STARTS}"
+
+  # event_loss (v3): present, true zero, fully instrumented.
+  LOSS_TOTAL=$(jq -r '.event_loss.total' "$MANIFEST")
+  if [ "${LOSS_TOTAL}" != "0" ]; then
+    fail "event_loss.total=${LOSS_TOTAL}, want 0 (default buffer, light workload)"; exit 1
+  fi
+  NI=$(jq -r '.event_loss.not_instrumented | length' "$MANIFEST")
+  if [ "${NI}" != "0" ]; then
+    fail "event_loss.not_instrumented has ${NI} entries — live sensor must instrument every stage"; exit 1
+  fi
+  SUM=$(jq -r '[.event_loss.by_stage[]] | add // 0' "$MANIFEST")
+  if [ "${SUM}" != "${LOSS_TOTAL}" ]; then
+    fail "event_loss sum invariant broken: total=${LOSS_TOTAL} sum(by_stage)=${SUM}"; exit 1
+  fi
+  STAGES=$(jq -r '.event_loss.by_stage | keys | length' "$MANIFEST")
+  info "event_loss.total=${LOSS_TOTAL} across ${STAGES} instrumented stage(s)"
 else
-  warn "jq not found — skipping schema v2 shape assertions"
+  warn "jq not found — skipping schema v3 shape assertions"
 fi
 
 # ── Phase 6: harden build ──────────────────────────────────────────────────────

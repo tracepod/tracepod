@@ -161,6 +161,7 @@ func TestRun_skipsMalformedRecord(t *testing.T) {
 	rd := &mockReader{records: []cilebpf.Record{
 		{RawSample: []byte{0x01, 0x02}}, // too short — must be skipped
 		makeRecord(ringbuf.EventTypeOpenat, 42, 4026532100, flagRDONLY, "cat", "/etc/passwd", ""),
+		{RawSample: []byte{0xff}}, // too short — must be skipped
 	}}
 
 	var got []ringbuf.Event
@@ -178,6 +179,10 @@ func TestRun_skipsMalformedRecord(t *testing.T) {
 	}
 	if got[0].Pid != 42 {
 		t.Errorf("got pid %d, want 42", got[0].Pid)
+	}
+	// The two malformed records are the decode_failed event-loss stage (v3).
+	if df := c.DecodeFailures(); df != 2 {
+		t.Errorf("DecodeFailures(): got %d, want 2", df)
 	}
 }
 
