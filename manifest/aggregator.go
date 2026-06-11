@@ -94,8 +94,16 @@ func (a *Aggregator) SetLossReader(r LossReader) {
 	for _, s := range rep.NotInstrumented {
 		notInst[s] = struct{}{}
 	}
-	base := make(map[string]uint64, len(rep.ByStage))
+	base := make(map[string]uint64, len(rep.ByStage)+len(rep.Tolerated))
+	// Hard and tolerated stage names are disjoint, so a single baseline map keyed
+	// by stage covers both; Snapshot looks each delta up by stage name.
 	for st, v := range rep.ByStage {
+		if _, skip := notInst[st]; skip {
+			continue
+		}
+		base[st] = v
+	}
+	for st, v := range rep.Tolerated {
 		if _, skip := notInst[st]; skip {
 			continue
 		}
@@ -254,20 +262,26 @@ func (a *Aggregator) Snapshot() Manifest {
 
 // eventLossLocked computes the per-window EventLoss (v3). Caller must hold a.mu.
 //
-// With a reader: by_stage carries, for each canonical stage the reader counted,
-// the delta since the baseline captured by SetLossReader; total is their sum.
-// Any stage the reader reports as not-instrumented at read time is omitted from
-// by_stage and listed in not_instrumented — never emitted as a false zero (R3).
+// With a reader: by_stage carries, for each canonical HARD stage the reader
+// counted, the delta since the baseline captured by SetLossReader; total is their
+// sum. tolerated carries the same per-window delta for each TOLERATED stage but is
+// deliberately excluded from total. Any stage the reader reports as
+// not-instrumented at read time is omitted from by_stage/tolerated and listed in
+// not_instrumented — never emitted as a false zero (R3).
 //
-// Without a reader: nothing was counted, so every canonical stage is
-// not_instrumented and total is 0. Zero-without-counting is never reported as a
-// zero count.
+// Without a reader: nothing was counted, so every canonical stage (hard and
+// tolerated) is not_instrumented and total is 0. Zero-without-counting is never
+// reported as a zero count.
 func (a *Aggregator) eventLossLocked() EventLoss {
 	if a.lossReader == nil {
+		missing := make([]string, 0, len(LossStages)+len(ToleratedStages))
+		missing = append(missing, LossStages...)
+		missing = append(missing, ToleratedStages...)
 		return EventLoss{
 			Total:           0,
 			ByStage:         map[string]uint64{},
-			NotInstrumented: append([]string(nil), LossStages...),
+			Tolerated:       map[string]uint64{},
+			NotInstrumented: missing,
 		}
 	}
 
@@ -277,27 +291,45 @@ func (a *Aggregator) eventLossLocked() EventLoss {
 		notInst[s] = struct{}{}
 	}
 
+	// delta returns the per-window count for a stage, guarding the monotonic
+	// counters against a reset/reread anomaly.
+	delta := func(cur uint64, stage string) uint64 {
+		base := a.lossBaseline[stage]
+		if cur > base {
+			return cur - base
+		}
+		return 0
+	}
+
+	var missing []string
+
+	// Hard stages — summed into total (the strict-zero gate).
 	by := make(map[string]uint64, len(LossStages))
 	var total uint64
-	var missing []string
 	for _, st := range LossStages {
 		if _, skip := notInst[st]; skip {
 			missing = append(missing, st)
 			continue
 		}
-		cur := rep.ByStage[st]
-		base := a.lossBaseline[st]
-		var d uint64
-		if cur > base { // counters are monotonic; guard a reset/reread anomaly
-			d = cur - base
-		}
+		d := delta(rep.ByStage[st], st)
 		by[st] = d
 		total += d
 	}
+
+	// Tolerated stages — counted and reported, never folded into total.
+	tol := make(map[string]uint64, len(ToleratedStages))
+	for _, st := range ToleratedStages {
+		if _, skip := notInst[st]; skip {
+			missing = append(missing, st)
+			continue
+		}
+		tol[st] = delta(rep.Tolerated[st], st)
+	}
+
 	if missing == nil {
 		missing = []string{}
 	}
-	return EventLoss{Total: total, ByStage: by, NotInstrumented: missing}
+	return EventLoss{Total: total, ByStage: by, Tolerated: tol, NotInstrumented: missing}
 }
 
 // processStartObservedLocked computes the R2 marker. Caller must hold a.mu.

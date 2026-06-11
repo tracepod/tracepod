@@ -34,12 +34,27 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 - A test-only `--ringbuf-bytes` sensor flag (and `sensor.ringbufBytes` Helm
   value) that shrinks the BPF events ring buffer, used by the new induced-loss
   fixture scenario to drive `event_loss.total > 0` under a real high-churn run.
+- `event_loss.tolerated` — a new separately-gated loss category carrying
+  `path_read_failed`, the openat `bpf_probe_read_user_str()` fault (the filename
+  pointer was unreadable, so the file open went unidentified). It is counted with
+  the same loss-proof in-kernel per-CPU mechanism as the hard stages but is
+  **excluded from `total`**: it has a load-independent idle floor (0–2 per
+  container) that would otherwise defeat the strict-zero gate on hard losses.
+  Consumers gate it with their own configurable ceiling (never zero) and must
+  surface the count. This supersedes the OSS-4 decision to exclude the fault from
+  loss accounting entirely — "`total: 0`, nothing reported" wrongly read as
+  "nothing lost" while opens went unidentified.
 
 ### Changed
 
 - `schema_version` is now the integer `3` (was `2`). No v2 field semantics
   changed; v3 is v2 plus the additive `event_loss` block. A consumer that ignores
   unknown fields reads a v3 document as a v2 document minus the loss signal.
+- **`v3.schema.json` was revised in place (2026-06-11)** to add the
+  `event_loss.tolerated` object, and its schema-drift hash regenerated. This is a
+  one-time exception to the frozen-schema rule, permitted only because no consumer
+  of v3 existed yet; it is not a precedent (see the v3-revision note in
+  `docs/profile-schema/README.md`).
 - NRI container adoption now registers the userspace aggregator **before**
   allowlisting the cgroup, closing the container-start race that would otherwise
   record spurious `untracked_cgroup` event loss on every clean start.
