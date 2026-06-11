@@ -1,0 +1,97 @@
+{
+  "schema_version": 3,
+  "container_id": "bd1ab33b85c0688d978f98e85e2b724505eae961f2ec622294ac8639aae3fa9f",
+  "profile_start": "2026-06-11T06:21:19.799946125Z",
+  "profile_end": "2026-06-11T06:21:23.806884047Z",
+  "coverage": {
+    "process_start_observed": true,
+    "attach_time": "2026-06-11T06:21:19.799944541Z",
+    "first_exec_time": "2026-06-11T06:21:19.802019811Z"
+  },
+  "container_starts": [
+    {
+      "container_id": "bd1ab33b85c0688d978f98e85e2b724505eae961f2ec622294ac8639aae3fa9f",
+      "timestamp": "2026-06-11T06:21:19.799946125Z"
+    }
+  ],
+  "event_loss": {
+    "total": 0,
+    "by_stage": {
+      "bpf_reserve_failed": 0,
+      "decode_failed": 0,
+      "untracked_cgroup": 0
+    },
+    "not_instrumented": []
+  },
+  "files": {
+    "/bin/sh": {
+      "source": "direct",
+      "access_modes": [
+        "x",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:19.802019811Z",
+      "last_seen": "2026-06-11T06:21:19.80252916Z",
+      "count": 1
+    },
+    "/etc/ld.so.cache": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:19.802840086Z",
+      "last_seen": "2026-06-11T06:21:19.802840086Z",
+      "count": 1
+    },
+    "/lib/aarch64-linux-gnu/libm.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:19.802844419Z",
+      "last_seen": "2026-06-11T06:21:19.802970798Z",
+      "count": 1
+    },
+    "/lib/libc.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:19.803175387Z",
+      "last_seen": "2026-06-11T06:21:19.803266432Z",
+      "count": 1
+    },
+    "/lib/libm.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:19.802853461Z",
+      "last_seen": "2026-06-11T06:21:19.802970798Z",
+      "count": 1
+    },
+    "/lib/libresolv.so.2": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:19.802995757Z",
+      "last_seen": "2026-06-11T06:21:19.803098135Z",
+      "count": 1
+    },
+    "/usr/lib/aarch64-linux-gnu/libm.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:19.802850919Z",
+      "last_seen": "2026-06-11T06:21:19.802970798Z",
+      "count": 1
+    }
+  }
+}

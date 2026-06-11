@@ -1,0 +1,56 @@
+{
+  "schema_version": 3,
+  "container_id": "f985e836a0924c1927dec51a80a73f0a02725d130baf1974d396707f6f3e2f81",
+  "profile_start": "2026-06-11T06:21:22.108429298Z",
+  "profile_end": "2026-06-11T06:22:10.008312088Z",
+  "coverage": {
+    "process_start_observed": true,
+    "attach_time": "2026-06-11T06:21:22.108428507Z",
+    "first_exec_time": "2026-06-11T06:21:22.110898705Z"
+  },
+  "container_starts": [
+    {
+      "container_id": "f985e836a0924c1927dec51a80a73f0a02725d130baf1974d396707f6f3e2f81",
+      "timestamp": "2026-06-11T06:21:22.108429298Z"
+    }
+  ],
+  "event_loss": {
+    "total": 0,
+    "by_stage": {
+      "bpf_reserve_failed": 0,
+      "decode_failed": 0,
+      "untracked_cgroup": 0
+    },
+    "not_instrumented": []
+  },
+  "files": {
+    "/etc/localtime": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:22.112389875Z",
+      "last_seen": "2026-06-11T06:21:22.112389875Z",
+      "count": 1
+    },
+    "/opt/hostedtoolcache/go/1.23.5/x64/lib/time/zoneinfo.zip": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:22.112394208Z",
+      "last_seen": "2026-06-11T06:21:22.112394208Z",
+      "count": 1
+    },
+    "/whoami": {
+      "source": "direct",
+      "access_modes": [
+        "x",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:22.110898705Z",
+      "last_seen": "2026-06-11T06:21:22.111339093Z",
+      "count": 1
+    }
+  }
+}

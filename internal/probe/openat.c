@@ -33,6 +33,41 @@ struct {
 	__uint(max_entries, 1 << 18); /* 256 KB */
 } events SEC(".maps");
 
+/* Event-loss counters (schema v3). A per-CPU array so increments are lock-free
+ * and loss-proof: each CPU bumps its own slot, userspace sums across CPUs at
+ * profile finalisation. This counts the buffer-pressure drop the kernel side can
+ * see but userspace never could otherwise:
+ *   STAT_RESERVE_FAILED — bpf_ringbuf_reserve() returned NULL (ring full): the
+ *                         primary buffer-pressure loss point, across all probes.
+ *
+ * NOTE: a userspace filename pointer that faults under bpf_probe_read_user_str()
+ * (the openat read-failure path below) is deliberately NOT counted here. It is a
+ * path-read fault, a different class from a capacity/transport drop, with a
+ * load-independent nonzero floor (optimistic user-pointer reads before the page
+ * is present) — counting it would impose a permanent nonzero floor on the
+ * consumer's lossy-window gate and defeat it. See manifest/eventloss.go and
+ * docs/profile-schema/README.md for the audit rationale.
+ *
+ * Keep this index in sync with the Go reader in probe.go (lossStatIndex). */
+#define STAT_RESERVE_FAILED 0
+#define STAT_MAX            1
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__type(key, __u32);
+	__type(value, __u64);
+	__uint(max_entries, STAT_MAX);
+} event_loss_stats SEC(".maps");
+
+/* stat_inc bumps a per-CPU loss counter. The lookup of a fixed key in a
+ * preallocated PERCPU_ARRAY cannot fail, so counting is itself loss-proof. */
+static __always_inline void stat_inc(__u32 idx)
+{
+	__u64 *c = bpf_map_lookup_elem(&event_loss_stats, &idx);
+	if (c)
+		(*c)++;
+}
+
 /* Userspace populates this map with the cgroup IDs of containers being
  * profiled. The kprobe discards events for any cgroup not in this map.
  * Key: cgroup ID (u64). Value: u8 sentinel (always 1). */
@@ -71,8 +106,10 @@ int BPF_KPROBE(kprobe_openat, int dfd, const char *filename,
 		return 0;
 
 	struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-	if (!e)
+	if (!e) {
+		stat_inc(STAT_RESERVE_FAILED);
 		return 0;
+	}
 
 	e->type = EVENT_OPENAT;
 	e->pid = bpf_get_current_pid_tgid() >> 32;
@@ -85,6 +122,10 @@ int BPF_KPROBE(kprobe_openat, int dfd, const char *filename,
 
 	long n = bpf_probe_read_user_str(e->filename, sizeof(e->filename), filename);
 	if (n <= 0) {
+		/* Filename pointer unreadable (e.g. page not yet present). The event is
+		 * discarded, but this is a path-read fault, not a capacity/transport
+		 * drop, and is intentionally NOT counted toward event_loss — see the
+		 * STAT_* note above. */
 		bpf_ringbuf_discard(e, 0);
 		return 0;
 	}
@@ -110,8 +151,10 @@ int BPF_KPROBE(kprobe_execve, struct linux_binprm *bprm)
 		return 0;
 
 	struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-	if (!e)
+	if (!e) {
+		stat_inc(STAT_RESERVE_FAILED);
 		return 0;
+	}
 
 	e->type = EVENT_EXECVE;
 	e->pid = bpf_get_current_pid_tgid() >> 32;
@@ -156,8 +199,10 @@ int BPF_KPROBE(kprobe_mmap, struct file *file, unsigned long prot,
 		return 0;
 
 	struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-	if (!e)
+	if (!e) {
+		stat_inc(STAT_RESERVE_FAILED);
 		return 0;
+	}
 
 	e->type = EVENT_MMAP;
 	e->pid = bpf_get_current_pid_tgid() >> 32;

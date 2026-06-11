@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,6 +96,25 @@ func TestSchemaConformance_assembledManifests(t *testing.T) {
 			a.RecordAttach(base, false)
 			a.RecordStart("restart-ctr-2", base.Add(30*time.Second))
 			a.RecordStart("restart-ctr-3", base.Add(60*time.Second))
+			return a.Snapshot()
+		},
+		// v3: a fully-instrumented profile with nonzero event_loss must validate.
+		"event-loss-nonzero": func() manifest.Manifest {
+			a := manifest.NewAggregator("lossy-ctr", "app:v1")
+			a.RecordAttach(base, false)
+			r := &fakeLossReader{byStage: map[string]uint64{
+				manifest.LossStageBPFReserveFailed: 0,
+				manifest.LossStageDecodeFailed:     0,
+				manifest.LossStageUntrackedCgroup:  0,
+			}}
+			a.SetLossReader(r)
+			r.byStage[manifest.LossStageBPFReserveFailed] = 17
+			return a.Snapshot()
+		},
+		// v3: the not_instrumented escape hatch (no reader) must validate too.
+		"event-loss-not-instrumented": func() manifest.Manifest {
+			a := manifest.NewAggregator("uninstrumented-ctr", "app:v1")
+			a.RecordAttach(base, false)
 			return a.Snapshot()
 		},
 	}
@@ -192,6 +212,84 @@ func TestProfileFixtures_coverScenarios(t *testing.T) {
 	}
 }
 
+// TestProfileFixtures_eventLoss guards the schema-v3 event_loss invariants over
+// the recorded fixture set (R5): every fixture carries event_loss with the sum
+// invariant intact and nothing falsely zeroed; the induced-loss fixture proves a
+// nonzero total is reachable and recorded; every other fixture proves a true
+// zero. Skips cleanly when no v3 fixtures have been recorded yet.
+func TestProfileFixtures_eventLoss(t *testing.T) {
+	dir := fmt.Sprintf("../testdata/profile-fixtures/v%d", manifest.SchemaVersion)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Skipf("no recorded fixtures at %s yet: %v", dir, err)
+	}
+
+	var n, sawNonzero, sawZero int
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || len(name) < 6 || name[len(name)-5:] != ".json" {
+			continue
+		}
+		raw, err := os.ReadFile(dir + "/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m manifest.Manifest
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatalf("decode fixture %s: %v", name, err)
+		}
+		n++
+		el := m.EventLoss
+
+		// Sum invariant holds for every fixture.
+		var sum uint64
+		for _, v := range el.ByStage {
+			sum += v
+		}
+		if el.Total != sum {
+			t.Errorf("%s: event_loss.total=%d != sum(by_stage)=%d", name, el.Total, sum)
+		}
+		// A recorded fixture is from a live sensor: every audited stage must be
+		// instrumented (zero-is-a-claim), so not_instrumented must be empty and
+		// by_stage must carry all canonical stages.
+		if len(el.NotInstrumented) != 0 {
+			t.Errorf("%s: recorded fixture has not_instrumented=%v — a live sensor instruments every stage", name, el.NotInstrumented)
+		}
+		for _, st := range manifest.LossStages {
+			if _, ok := el.ByStage[st]; !ok {
+				t.Errorf("%s: by_stage missing instrumented stage %q", name, st)
+			}
+		}
+
+		isInduced := strings.HasPrefix(name, "induced-loss")
+		switch {
+		case isInduced:
+			if el.Total == 0 {
+				t.Errorf("%s: induced-loss fixture must have event_loss.total > 0", name)
+			}
+			if el.ByStage[manifest.LossStageBPFReserveFailed] == 0 {
+				t.Errorf("%s: induced-loss fixture expected bpf_reserve_failed > 0, got by_stage=%v", name, el.ByStage)
+			}
+			sawNonzero++
+		default:
+			if el.Total != 0 {
+				t.Errorf("%s: normal fixture must have event_loss.total == 0, got %d (by_stage=%v)", name, el.Total, el.ByStage)
+			}
+			sawZero++
+		}
+	}
+
+	if n == 0 {
+		t.Skip("no *.json fixtures recorded yet")
+	}
+	if sawZero == 0 {
+		t.Error("fixture set has no true-zero event_loss profile (normal scenario)")
+	}
+	if sawNonzero == 0 {
+		t.Error("fixture set has no induced-loss profile (event_loss.total > 0) — record one with a shrunken ring buffer")
+	}
+}
+
 // TestSchemaConformance_rejectsMalformed proves the validator is real — a
 // document with a bogus source enum and a string schema_version must fail, so a
 // silently-passing harness can't mask a genuine drift.
@@ -215,16 +313,17 @@ func TestSchemaConformance_rejectsMalformed(t *testing.T) {
 	}
 }
 
-// TestSchemaConformance_versionIsIntegerTwo guards the R1 type change: the wire
-// field must be the integer 2, never the legacy string "1".
-func TestSchemaConformance_versionIsIntegerTwo(t *testing.T) {
+// TestSchemaConformance_versionIsCurrentInteger guards the schema_version wire
+// type: it must be the current integer (never the legacy string "1").
+func TestSchemaConformance_versionIsCurrentInteger(t *testing.T) {
 	a := manifest.NewAggregator("c", "")
 	body, err := json.Marshal(a.Snapshot())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(body, []byte(`"schema_version":2`)) {
-		t.Errorf("expected integer schema_version 2 in wire output, got:\n%s", body)
+	want := fmt.Sprintf(`"schema_version":%d`, manifest.SchemaVersion)
+	if !bytes.Contains(body, []byte(want)) {
+		t.Errorf("expected integer %q in wire output, got:\n%s", want, body)
 	}
 	if bytes.Contains(body, []byte(`"schema_version":"`)) {
 		t.Errorf("schema_version must not be a string:\n%s", body)

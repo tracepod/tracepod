@@ -1,0 +1,1261 @@
+{
+  "schema_version": 3,
+  "container_id": "f778bdeb7dddd7c76a764bd89fa916413c6274f4570b92a5ce6ac189649a96ab",
+  "profile_start": "2026-06-11T06:21:25.311227628Z",
+  "profile_end": "2026-06-11T06:22:39.998495988Z",
+  "coverage": {
+    "process_start_observed": true,
+    "attach_time": "2026-06-11T06:21:25.311226836Z",
+    "first_exec_time": "2026-06-11T06:21:25.313816372Z"
+  },
+  "container_starts": [
+    {
+      "container_id": "f778bdeb7dddd7c76a764bd89fa916413c6274f4570b92a5ce6ac189649a96ab",
+      "timestamp": "2026-06-11T06:21:25.311227628Z"
+    }
+  ],
+  "event_loss": {
+    "total": 0,
+    "by_stage": {
+      "bpf_reserve_failed": 0,
+      "decode_failed": 0,
+      "untracked_cgroup": 0
+    },
+    "not_instrumented": []
+  },
+  "files": {
+    "/etc/ld.so.cache": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.31486057Z",
+      "last_seen": "2026-06-11T06:21:25.376913594Z",
+      "count": 3
+    },
+    "/etc/localtime": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.318647891Z",
+      "last_seen": "2026-06-11T06:21:25.318647891Z",
+      "count": 1
+    },
+    "/lib/aarch64-linux-gnu/libc.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.314903988Z",
+      "last_seen": "2026-06-11T06:21:25.314910738Z",
+      "count": 1
+    },
+    "/lib/aarch64-linux-gnu/libcrypto.so.3": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.361643262Z",
+      "last_seen": "2026-06-11T06:21:25.361650262Z",
+      "count": 1
+    },
+    "/lib/aarch64-linux-gnu/libm.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.315001366Z",
+      "last_seen": "2026-06-11T06:21:25.315148912Z",
+      "count": 1
+    },
+    "/lib/aarch64-linux-gnu/libsqlite3.so.0": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.376916635Z",
+      "last_seen": "2026-06-11T06:21:25.376916635Z",
+      "count": 1
+    },
+    "/lib/aarch64-linux-gnu/libssl.so.3": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.361632678Z",
+      "last_seen": "2026-06-11T06:21:25.361638595Z",
+      "count": 1
+    },
+    "/lib/aarch64-linux-gnu/libz.so.1": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.361653429Z",
+      "last_seen": "2026-06-11T06:21:25.361653429Z",
+      "count": 1
+    },
+    "/lib/aarch64-linux-gnu/libzstd.so.1": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.361661512Z",
+      "last_seen": "2026-06-11T06:21:25.361661512Z",
+      "count": 1
+    },
+    "/usr/lib/aarch64-linux-gnu/gconv/gconv-modules.cache": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.316292779Z",
+      "last_seen": "2026-06-11T06:21:25.316292779Z",
+      "count": 1
+    },
+    "/usr/lib/locale/C.UTF-8/LC_CTYPE": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.316285196Z",
+      "last_seen": "2026-06-11T06:21:25.316285196Z",
+      "count": 1
+    },
+    "/usr/lib/locale/C.utf8/LC_CTYPE": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.316288029Z",
+      "last_seen": "2026-06-11T06:21:25.316288029Z",
+      "count": 1
+    },
+    "/usr/lib/ssl/openssl.cnf": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.374021382Z",
+      "last_seen": "2026-06-11T06:21:25.374021382Z",
+      "count": 1
+    },
+    "/usr/local/bin/pybuilddir.txt": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.318193378Z",
+      "last_seen": "2026-06-11T06:21:25.318193378Z",
+      "count": 1
+    },
+    "/usr/local/bin/python": {
+      "source": "direct",
+      "access_modes": [
+        "x"
+      ],
+      "first_seen": "2026-06-11T06:21:25.313816372Z",
+      "last_seen": "2026-06-11T06:21:25.313816372Z",
+      "count": 1
+    },
+    "/usr/local/bin/python._pth": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.318187919Z",
+      "last_seen": "2026-06-11T06:21:25.318187919Z",
+      "count": 1
+    },
+    "/usr/local/bin/python3.12._pth": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.318191128Z",
+      "last_seen": "2026-06-11T06:21:25.318191128Z",
+      "count": 1
+    },
+    "/usr/local/bin/pyvenv.cfg": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.318185128Z",
+      "last_seen": "2026-06-11T06:21:25.318185128Z",
+      "count": 1
+    },
+    "/usr/local/lib/libc.so.6": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.314857195Z",
+      "last_seen": "2026-06-11T06:21:25.314910738Z",
+      "count": 1
+    },
+    "/usr/local/lib/libpython3.12.so.1.0": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.314675522Z",
+      "last_seen": "2026-06-11T06:21:25.314678439Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.31886544Z",
+      "last_seen": "2026-06-11T06:21:25.31886544Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/base64.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.368910187Z",
+      "last_seen": "2026-06-11T06:21:25.368910187Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/base64.cpython-312.pyc.275885383763648": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.370281228Z",
+      "last_seen": "2026-06-11T06:21:25.370281228Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/copyreg.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.355928715Z",
+      "last_seen": "2026-06-11T06:21:25.355928715Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/copyreg.cpython-312.pyc.275885385477664": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.356407605Z",
+      "last_seen": "2026-06-11T06:21:25.356407605Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/datetime.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.376482206Z",
+      "last_seen": "2026-06-11T06:21:25.376482206Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/datetime.cpython-312.pyc.275885383770928": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.376534999Z",
+      "last_seen": "2026-06-11T06:21:25.376534999Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/enum.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.331584945Z",
+      "last_seen": "2026-06-11T06:21:25.331584945Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/enum.cpython-312.pyc.275885386506384": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.337390161Z",
+      "last_seen": "2026-06-11T06:21:25.337390161Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/functools.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.340232871Z",
+      "last_seen": "2026-06-11T06:21:25.340232871Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/functools.cpython-312.pyc.275885386507952": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.342761155Z",
+      "last_seen": "2026-06-11T06:21:25.342761155Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/hashlib.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.372733385Z",
+      "last_seen": "2026-06-11T06:21:25.372733385Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/hashlib.cpython-312.pyc.275885383770032": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.373251234Z",
+      "last_seen": "2026-06-11T06:21:25.373251234Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/keyword.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.348307237Z",
+      "last_seen": "2026-06-11T06:21:25.348307237Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/keyword.cpython-312.pyc.275885385474640": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.348420907Z",
+      "last_seen": "2026-06-11T06:21:25.348420907Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/operator.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.339194006Z",
+      "last_seen": "2026-06-11T06:21:25.339194006Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/operator.cpython-312.pyc.275885386507952": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.340120867Z",
+      "last_seen": "2026-06-11T06:21:25.340120867Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/reprlib.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.348506035Z",
+      "last_seen": "2026-06-11T06:21:25.348506035Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/reprlib.cpython-312.pyc.275885385474640": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.349281225Z",
+      "last_seen": "2026-06-11T06:21:25.349281225Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/selectors.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.366336277Z",
+      "last_seen": "2026-06-11T06:21:25.366336277Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/selectors.cpython-312.pyc.275885383765552": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.367593898Z",
+      "last_seen": "2026-06-11T06:21:25.367593898Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/socket.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.36360707Z",
+      "last_seen": "2026-06-11T06:21:25.36360707Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/socket.cpython-312.pyc.275885383762192": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.366210523Z",
+      "last_seen": "2026-06-11T06:21:25.366210523Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/ssl.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.358394581Z",
+      "last_seen": "2026-06-11T06:21:25.358394581Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/ssl.cpython-312.pyc.275885385477888": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.361322544Z",
+      "last_seen": "2026-06-11T06:21:25.361322544Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/struct.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.370405357Z",
+      "last_seen": "2026-06-11T06:21:25.370405357Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/struct.cpython-312.pyc.275885383766336": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.370462984Z",
+      "last_seen": "2026-06-11T06:21:25.370462984Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/types.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.338223977Z",
+      "last_seen": "2026-06-11T06:21:25.338223977Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/types.cpython-312.pyc.275885386507728": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.33904996Z",
+      "last_seen": "2026-06-11T06:21:25.33904996Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/warnings.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.370914831Z",
+      "last_seen": "2026-06-11T06:21:25.370914831Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/__pycache__/warnings.cpython-312.pyc.275885383768800": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.372348207Z",
+      "last_seen": "2026-06-11T06:21:25.372348207Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/base64.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.368916396Z",
+      "last_seen": "2026-06-11T06:21:25.368916396Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/collections": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.367694359Z",
+      "last_seen": "2026-06-11T06:21:25.367694359Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/collections/__init__.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.342873033Z",
+      "last_seen": "2026-06-11T06:21:25.342873033Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/collections/__pycache__/__init__.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.342870116Z",
+      "last_seen": "2026-06-11T06:21:25.342870116Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/collections/__pycache__/__init__.cpython-312.pyc.275885385655856": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.346782192Z",
+      "last_seen": "2026-06-11T06:21:25.346782192Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/collections/__pycache__/abc.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.367790529Z",
+      "last_seen": "2026-06-11T06:21:25.367790529Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/collections/__pycache__/abc.cpython-312.pyc.275885383768240": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.36788699Z",
+      "last_seen": "2026-06-11T06:21:25.36788699Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/collections/abc.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.367823655Z",
+      "last_seen": "2026-06-11T06:21:25.367823655Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/copyreg.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.355931466Z",
+      "last_seen": "2026-06-11T06:21:25.355931466Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/datetime.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.376485122Z",
+      "last_seen": "2026-06-11T06:21:25.376485122Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/encodings": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.324008468Z",
+      "last_seen": "2026-06-11T06:21:25.324008468Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/encodings/__init__.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.318983818Z",
+      "last_seen": "2026-06-11T06:21:25.318983818Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/encodings/__pycache__/__init__.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.318980526Z",
+      "last_seen": "2026-06-11T06:21:25.318980526Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/encodings/__pycache__/__init__.cpython-312.pyc.275885386878768": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.320328525Z",
+      "last_seen": "2026-06-11T06:21:25.320328525Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/encodings/__pycache__/aliases.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.324098263Z",
+      "last_seen": "2026-06-11T06:21:25.324098263Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/encodings/__pycache__/aliases.cpython-312.pyc.275885386502240": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.32483391Z",
+      "last_seen": "2026-06-11T06:21:25.32483391Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/encodings/__pycache__/utf_8.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.324981289Z",
+      "last_seen": "2026-06-11T06:21:25.324981289Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/encodings/__pycache__/utf_8.cpython-312.pyc.275885386502464": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.325144836Z",
+      "last_seen": "2026-06-11T06:21:25.325144836Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/encodings/aliases.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.324100763Z",
+      "last_seen": "2026-06-11T06:21:25.324100763Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/encodings/utf_8.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.324984206Z",
+      "last_seen": "2026-06-11T06:21:25.324984206Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/enum.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.331587654Z",
+      "last_seen": "2026-06-11T06:21:25.331587654Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/functools.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.340244954Z",
+      "last_seen": "2026-06-11T06:21:25.340244954Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/hashlib.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.372815263Z",
+      "last_seen": "2026-06-11T06:21:25.372815263Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.328428851Z",
+      "last_seen": "2026-06-11T06:21:25.328428851Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json/__init__.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.326475501Z",
+      "last_seen": "2026-06-11T06:21:25.326475501Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json/__pycache__/__init__.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.326472001Z",
+      "last_seen": "2026-06-11T06:21:25.326472001Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json/__pycache__/__init__.cpython-312.pyc.275885386503696": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.327000475Z",
+      "last_seen": "2026-06-11T06:21:25.327000475Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json/__pycache__/decoder.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.328495019Z",
+      "last_seen": "2026-06-11T06:21:25.328495019Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json/__pycache__/decoder.cpython-312.pyc.275885386505488": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.329403505Z",
+      "last_seen": "2026-06-11T06:21:25.329403505Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json/__pycache__/encoder.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.357277173Z",
+      "last_seen": "2026-06-11T06:21:25.357277173Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json/__pycache__/encoder.cpython-312.pyc.275885385477888": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.358193075Z",
+      "last_seen": "2026-06-11T06:21:25.358193075Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json/__pycache__/scanner.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.356495399Z",
+      "last_seen": "2026-06-11T06:21:25.356495399Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json/__pycache__/scanner.cpython-312.pyc.275885385477888": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.356773282Z",
+      "last_seen": "2026-06-11T06:21:25.356773282Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json/decoder.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.328498478Z",
+      "last_seen": "2026-06-11T06:21:25.328498478Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json/encoder.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.357280048Z",
+      "last_seen": "2026-06-11T06:21:25.357280048Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/json/scanner.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.356499566Z",
+      "last_seen": "2026-06-11T06:21:25.356499566Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/keyword.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.348311988Z",
+      "last_seen": "2026-06-11T06:21:25.348311988Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.326216076Z",
+      "last_seen": "2026-06-11T06:21:25.326216076Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload/_blake2.cpython-312-aarch64-linux-gnu.so": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.374307682Z",
+      "last_seen": "2026-06-11T06:21:25.374358684Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload/_datetime.cpython-312-aarch64-linux-gnu.so": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.376581584Z",
+      "last_seen": "2026-06-11T06:21:25.37663221Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload/_hashlib.cpython-312-aarch64-linux-gnu.so": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.373332945Z",
+      "last_seen": "2026-06-11T06:21:25.373342612Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload/_json.cpython-312-aarch64-linux-gnu.so": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.356907578Z",
+      "last_seen": "2026-06-11T06:21:25.356915578Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload/_socket.cpython-312-aarch64-linux-gnu.so": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.362801546Z",
+      "last_seen": "2026-06-11T06:21:25.362811797Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload/_sqlite3.cpython-312-aarch64-linux-gnu.so": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.376841925Z",
+      "last_seen": "2026-06-11T06:21:25.376853508Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload/_ssl.cpython-312-aarch64-linux-gnu.so": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.361416838Z",
+      "last_seen": "2026-06-11T06:21:25.361621428Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload/_struct.cpython-312-aarch64-linux-gnu.so": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.370542195Z",
+      "last_seen": "2026-06-11T06:21:25.370583404Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload/array.cpython-312-aarch64-linux-gnu.so": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.368755391Z",
+      "last_seen": "2026-06-11T06:21:25.368762183Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload/binascii.cpython-312-aarch64-linux-gnu.so": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.370695282Z",
+      "last_seen": "2026-06-11T06:21:25.370755534Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload/math.cpython-312-aarch64-linux-gnu.so": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.367952909Z",
+      "last_seen": "2026-06-11T06:21:25.36799016Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/lib-dynload/select.cpython-312-aarch64-linux-gnu.so": {
+      "source": "direct",
+      "access_modes": [
+        "r",
+        "m"
+      ],
+      "first_seen": "2026-06-11T06:21:25.368073121Z",
+      "last_seen": "2026-06-11T06:21:25.368079954Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/operator.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.339197423Z",
+      "last_seen": "2026-06-11T06:21:25.339197423Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.349981287Z",
+      "last_seen": "2026-06-11T06:21:25.349981287Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/__init__.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.329527759Z",
+      "last_seen": "2026-06-11T06:21:25.329527759Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/__pycache__/__init__.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.329432881Z",
+      "last_seen": "2026-06-11T06:21:25.329432881Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/__pycache__/__init__.cpython-312.pyc.275885386506272": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.330228613Z",
+      "last_seen": "2026-06-11T06:21:25.330228613Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/__pycache__/_casefix.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.355515786Z",
+      "last_seen": "2026-06-11T06:21:25.355515786Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/__pycache__/_casefix.cpython-312.pyc.275885385476208": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.355753919Z",
+      "last_seen": "2026-06-11T06:21:25.355753919Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/__pycache__/_compiler.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.35002333Z",
+      "last_seen": "2026-06-11T06:21:25.35002333Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/__pycache__/_compiler.cpython-312.pyc.275885386509520": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.352039141Z",
+      "last_seen": "2026-06-11T06:21:25.352039141Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/__pycache__/_constants.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.355038564Z",
+      "last_seen": "2026-06-11T06:21:25.355038564Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/__pycache__/_constants.cpython-312.pyc.275885385477328": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.355367657Z",
+      "last_seen": "2026-06-11T06:21:25.355367657Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/__pycache__/_parser.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.352142644Z",
+      "last_seen": "2026-06-11T06:21:25.352142644Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/__pycache__/_parser.cpython-312.pyc.275885386511760": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.354967228Z",
+      "last_seen": "2026-06-11T06:21:25.354967228Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/_casefix.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.355518162Z",
+      "last_seen": "2026-06-11T06:21:25.355518162Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/_compiler.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.350025705Z",
+      "last_seen": "2026-06-11T06:21:25.350025705Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/_constants.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.355041272Z",
+      "last_seen": "2026-06-11T06:21:25.355041272Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/re/_parser.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.352145227Z",
+      "last_seen": "2026-06-11T06:21:25.352145227Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/reprlib.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.348510285Z",
+      "last_seen": "2026-06-11T06:21:25.348510285Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/selectors.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.366339402Z",
+      "last_seen": "2026-06-11T06:21:25.366339402Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/site-packages": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.326137991Z",
+      "last_seen": "2026-06-11T06:21:25.32628087Z",
+      "count": 2
+    },
+    "/usr/local/lib/python3.12/socket.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.363610029Z",
+      "last_seen": "2026-06-11T06:21:25.363610029Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/sqlite3": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.376032734Z",
+      "last_seen": "2026-06-11T06:21:25.376032734Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/sqlite3/__init__.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.374545689Z",
+      "last_seen": "2026-06-11T06:21:25.374545689Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/sqlite3/__pycache__/__init__.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.374496313Z",
+      "last_seen": "2026-06-11T06:21:25.374496313Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/sqlite3/__pycache__/__init__.cpython-312.pyc.275885383770032": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.374629984Z",
+      "last_seen": "2026-06-11T06:21:25.374629984Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/sqlite3/__pycache__/dbapi2.cpython-312.pyc": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.376087402Z",
+      "last_seen": "2026-06-11T06:21:25.376087402Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/sqlite3/__pycache__/dbapi2.cpython-312.pyc.275885383770256": {
+      "source": "direct",
+      "access_modes": [
+        "w"
+      ],
+      "first_seen": "2026-06-11T06:21:25.376409287Z",
+      "last_seen": "2026-06-11T06:21:25.376409287Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/sqlite3/dbapi2.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.376089861Z",
+      "last_seen": "2026-06-11T06:21:25.376089861Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/ssl.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.358397539Z",
+      "last_seen": "2026-06-11T06:21:25.358397539Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/struct.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.370411316Z",
+      "last_seen": "2026-06-11T06:21:25.370411316Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/types.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.338227186Z",
+      "last_seen": "2026-06-11T06:21:25.338227186Z",
+      "count": 1
+    },
+    "/usr/local/lib/python3.12/warnings.py": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.370917456Z",
+      "last_seen": "2026-06-11T06:21:25.370917456Z",
+      "count": 1
+    },
+    "/usr/local/pyvenv.cfg": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.317788782Z",
+      "last_seen": "2026-06-11T06:21:25.317788782Z",
+      "count": 1
+    },
+    "/usr/share/locale/locale.alias": {
+      "source": "direct",
+      "access_modes": [
+        "r"
+      ],
+      "first_seen": "2026-06-11T06:21:25.316281696Z",
+      "last_seen": "2026-06-11T06:21:25.316281696Z",
+      "count": 1
+    }
+  }
+}

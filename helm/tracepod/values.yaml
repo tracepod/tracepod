@@ -17,6 +17,13 @@ sensor:
   # Ignored when controllerURL is set.
   profileHostPath: /var/lib/tracepod/profiles
 
+  # ringbufBytes: override the BPF events ring-buffer size, in bytes (power of
+  # two, page-multiple). 0/unset keeps the default 256 KB. This is a TEST-ONLY
+  # knob: a deliberately tiny buffer forces bpf_ringbuf_reserve failures under a
+  # high-churn workload so the schema-v3 event_loss counters are demonstrably
+  # nonzero (the induced-loss fixture). Do not set in production.
+  ringbufBytes: 0
+
   # resources: resource requests/limits for the sensor container.
   # The sensor is lightweight — default is unbounded. Set limits for production.
   resources: {}

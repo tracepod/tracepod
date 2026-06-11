@@ -383,6 +383,74 @@ See [CONFIDENCE.md](CONFIDENCE.md) for the full penalty table.
 
 ---
 
+## 4. Event loss under buffer pressure
+
+### What happens
+
+The sensor moves every file-open, exec, and exec-mmap event from the kernel
+through a BPF ring buffer to a single userspace consumer. Under a high enough
+event rate — a workload opening files faster than the consumer drains them — the
+ring buffer fills and the kernel **drops** events: `bpf_ringbuf_reserve()`
+returns `NULL` and the event is gone. Smaller drop sources exist too (a faulting
+userspace path pointer, a malformed record, an event arriving in the brief race
+between the BPF allowlist and the userspace aggregator at container start/stop).
+
+A dropped open is invisible by nature: the file was accessed, but the manifest
+never learns it. The danger is not the missing file alone — it is the *silence*.
+A busy window with drops looks, from the manifest, like a quiet window. A
+downstream coverage scorer that rewards "discovery has flattened" can score a
+lossy window *higher* than a clean one, exactly when observation quality was
+worse.
+
+### Risk level
+
+**Low for image correctness, but it can poison "not loaded" claims.** A drop
+never adds a wrong file (fail-safe for minimisation — a dropped open just means a
+file might be missing, caught by testing the hardened image). The real risk is to
+*consumers that reason from absence*: treating "not observed" as "not loaded" is
+only valid when nothing was dropped.
+
+### Now machine-visible (schema v3)
+
+As of profile schema v3 the sensor **counts event loss at every audited drop
+point** and reports it in the profile's top-level `event_loss` block:
+
+```jsonc
+"event_loss": {
+  "total": 0,                       // the gate: nonzero ⇒ this window was lossy
+  "by_stage": {                     // where the loss happened (diagnosis only)
+    "bpf_reserve_failed": 0,        // ring buffer full (the primary cause)
+    "decode_failed": 0,             // malformed record skipped
+    "untracked_cgroup": 0           // start/stop race
+  },
+  "not_instrumented": []            // empty ⇒ every in-scope drop point was counted
+}
+```
+
+The counts are **window-level**, not per-container: a buffer drop cannot be
+attributed to one container, so any loss in a window taints every container
+observed in it (the conservative direction). `total: 0` is a positive claim
+("instrumented everywhere, lost nothing"), never "didn't count" — a drop point
+that could not be instrumented is named in `not_instrumented` instead of reading
+a false zero. See [profile-schema/README.md](profile-schema/README.md#event_loss-v3--window-level-event-loss-counters)
+for the full field reference, the loss-point audit, and consumer guidance.
+
+The limitation itself **remains**: loss can still happen under buffer pressure
+(raise the ring-buffer size, lower the event rate, or profile under representative
+rather than worst-case load). What changed is that the silence ended — a lossy
+window now announces itself, so a consumer can refuse to draw "not observed ⇒ not
+loaded" conclusions from it.
+
+### Current workaround
+
+Profile under representative load; for known-bursty workloads the ring-buffer
+size is a build-time constant in `internal/probe/openat.c` (default 256 KB) and
+can be raised. The sensor's `--ringbuf-bytes` flag overrides it (it exists to
+*shrink* the buffer for the induced-loss test fixture, but accepts larger values
+too). Most importantly: **check `event_loss.total` before trusting absence.**
+
+---
+
 ## Summary
 
 | Gap | Security risk | Image breakage risk |
@@ -391,6 +459,7 @@ See [CONFIDENCE.md](CONFIDENCE.md) for the full penalty table.
 | NRI startup race (entire entrypoint + init phase) | None | High (startup failure) |
 | Static content not served during profiling | None | Low (404s, not crash) |
 | `dlopen()` on uninvoked code paths | Low | Low |
+| Event loss under buffer pressure | None | Low (fail-safe) — but taints "not loaded" claims; now counted in `event_loss` |
 
 ### The underlying pattern
 

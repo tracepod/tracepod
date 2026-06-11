@@ -31,6 +31,14 @@ type Aggregator struct {
 	// R3 start-event records, in observation order.
 	starts []StartEvent
 
+	// Event-loss instrumentation (v3). lossReader is the process-wide cumulative
+	// counter source; lossBaseline is its reading captured at window start so
+	// Snapshot can emit the per-window delta. A nil lossReader means the window
+	// was not instrumented — EventLoss then reports every stage as
+	// not_instrumented rather than a false zero (see eventLossLocked).
+	lossReader   LossReader
+	lossBaseline map[string]uint64
+
 	files map[string]FileEntry // keyed by absolute path
 }
 
@@ -63,6 +71,37 @@ func (a *Aggregator) RecordAttach(attachTime time.Time, processAlreadyRunning bo
 	a.attachKnown = true
 	a.processAlreadyRunning = processAlreadyRunning
 	a.mu.Unlock()
+}
+
+// SetLossReader attaches the process-wide event-loss counter source and
+// captures a baseline reading at this instant, so Snapshot emits the loss that
+// occurred during this window (current − baseline). Call once, at window start
+// (right after NewAggregator), before events flow. The sensor passes its
+// combined BPF + userspace counter reader; tests pass a fake.
+//
+// Without a reader the aggregator cannot honestly claim zero loss: its EventLoss
+// reports every audited stage as not_instrumented (see eventLossLocked).
+func (a *Aggregator) SetLossReader(r LossReader) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.lossReader = r
+	if r == nil {
+		a.lossBaseline = nil
+		return
+	}
+	rep := r.ReadLoss()
+	notInst := make(map[string]struct{}, len(rep.NotInstrumented))
+	for _, s := range rep.NotInstrumented {
+		notInst[s] = struct{}{}
+	}
+	base := make(map[string]uint64, len(rep.ByStage))
+	for st, v := range rep.ByStage {
+		if _, skip := notInst[st]; skip {
+			continue
+		}
+		base[st] = v
+	}
+	a.lossBaseline = base
 }
 
 // RecordStart appends an additional witnessed container start (R3). Used when a
@@ -208,8 +247,57 @@ func (a *Aggregator) Snapshot() Manifest {
 		ProfileEnd:      time.Now().UTC(),
 		Coverage:        cov,
 		ContainerStarts: starts,
+		EventLoss:       a.eventLossLocked(),
 		Files:           files,
 	}
+}
+
+// eventLossLocked computes the per-window EventLoss (v3). Caller must hold a.mu.
+//
+// With a reader: by_stage carries, for each canonical stage the reader counted,
+// the delta since the baseline captured by SetLossReader; total is their sum.
+// Any stage the reader reports as not-instrumented at read time is omitted from
+// by_stage and listed in not_instrumented — never emitted as a false zero (R3).
+//
+// Without a reader: nothing was counted, so every canonical stage is
+// not_instrumented and total is 0. Zero-without-counting is never reported as a
+// zero count.
+func (a *Aggregator) eventLossLocked() EventLoss {
+	if a.lossReader == nil {
+		return EventLoss{
+			Total:           0,
+			ByStage:         map[string]uint64{},
+			NotInstrumented: append([]string(nil), LossStages...),
+		}
+	}
+
+	rep := a.lossReader.ReadLoss()
+	notInst := make(map[string]struct{}, len(rep.NotInstrumented))
+	for _, s := range rep.NotInstrumented {
+		notInst[s] = struct{}{}
+	}
+
+	by := make(map[string]uint64, len(LossStages))
+	var total uint64
+	var missing []string
+	for _, st := range LossStages {
+		if _, skip := notInst[st]; skip {
+			missing = append(missing, st)
+			continue
+		}
+		cur := rep.ByStage[st]
+		base := a.lossBaseline[st]
+		var d uint64
+		if cur > base { // counters are monotonic; guard a reset/reread anomaly
+			d = cur - base
+		}
+		by[st] = d
+		total += d
+	}
+	if missing == nil {
+		missing = []string{}
+	}
+	return EventLoss{Total: total, ByStage: by, NotInstrumented: missing}
 }
 
 // processStartObservedLocked computes the R2 marker. Caller must hold a.mu.

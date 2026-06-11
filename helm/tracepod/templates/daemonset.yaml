@@ -32,6 +32,9 @@ spec:
           {{- else }}
           - --profile-dir=/profiles
           {{- end }}
+          {{- if .Values.sensor.ringbufBytes }}
+          - --ringbuf-bytes={{ .Values.sensor.ringbufBytes }}
+          {{- end }}
         env:
         - name: NODE_NAME
           valueFrom:

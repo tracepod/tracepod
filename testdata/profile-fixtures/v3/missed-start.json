@@ -1,0 +1,26 @@
+{
+  "schema_version": 3,
+  "container_id": "ccac0e3cfed506676fbe9e16452a83b5de9746b553ce6b63f8cb2831ef3e8cde",
+  "profile_start": "2026-06-11T06:21:18.916243534Z",
+  "profile_end": "2026-06-11T06:22:40.021079697Z",
+  "coverage": {
+    "process_start_observed": false,
+    "attach_time": "2026-06-11T06:21:18.916243492Z"
+  },
+  "container_starts": [
+    {
+      "container_id": "ccac0e3cfed506676fbe9e16452a83b5de9746b553ce6b63f8cb2831ef3e8cde",
+      "timestamp": "2026-06-11T06:21:18.916243534Z"
+    }
+  ],
+  "event_loss": {
+    "total": 0,
+    "by_stage": {
+      "bpf_reserve_failed": 0,
+      "decode_failed": 0,
+      "untracked_cgroup": 0
+    },
+    "not_instrumented": []
+  },
+  "files": {}
+}

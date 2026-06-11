@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	ebpfringbuf "github.com/cilium/ebpf/ringbuf"
 )
@@ -57,6 +58,11 @@ type Reader interface {
 type Consumer struct {
 	rd      Reader
 	handler func(Event)
+
+	// decodeFailures counts committed records too short/malformed to decode into
+	// an Event — the decode_failed event-loss stage (schema v3). Atomic so the
+	// sensor's loss reader can read it from another goroutine while Run writes.
+	decodeFailures atomic.Uint64
 }
 
 // New returns a Consumer. handler is called once per successfully decoded event.
@@ -79,13 +85,20 @@ func (c *Consumer) Run() error {
 
 		var e Event
 		if err := binary.Read(bytes.NewReader(rec.RawSample), binary.LittleEndian, &e); err != nil {
-			// Malformed record — skip rather than crash.
+			// Malformed record — skip rather than crash, but count it: a dropped
+			// record is event loss (decode_failed) the consumer must surface.
+			c.decodeFailures.Add(1)
 			continue
 		}
 
 		c.handler(e)
 	}
 }
+
+// DecodeFailures returns the cumulative count of malformed records skipped since
+// the consumer was created (the decode_failed event-loss stage). Safe to call
+// concurrently with Run.
+func (c *Consumer) DecodeFailures() uint64 { return c.decodeFailures.Load() }
 
 func nullTerminated(b []byte) string {
 	if i := bytes.IndexByte(b, 0); i >= 0 {
