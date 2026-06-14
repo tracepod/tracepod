@@ -132,12 +132,17 @@ func main() {
 		defer plugin.Stop()
 	}
 
-	// Closing the ring buffer reader from the signal goroutine unblocks
-	// consumer.Run(), which returns nil and lets main exit cleanly.
+	// On SIGINT/SIGTERM, flush every in-flight container profile BEFORE tearing
+	// down the probe, so a sensor restart/rollout/node-drain does not silently drop
+	// the generation of every currently-tracked container (OSS-5 secondary loss).
+	// Closing the ring buffer reader then unblocks consumer.Run(), which returns
+	// nil and lets main exit cleanly.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sig
+		fmt.Fprintln(os.Stderr, "sensor: signal received — flushing in-flight profiles")
+		router.flushAll()
 		p.Close()
 	}()
 
@@ -158,6 +163,7 @@ type cgroupRouter struct {
 	aggs          map[uint64]*manifest.Aggregator // cgroupID → aggregator
 	ctrToCgroup   map[string]uint64               // containerID → cgroupID (for onStop lookup)
 	cgroupFSPath  map[uint64]string               // cgroupID → cgroup filesystem path
+	targets       map[uint64]*postTarget          // cgroupID → POST destination (resolved at start)
 	denyList      *manifest.DenyList
 	profileDir    string
 	controllerURL string
@@ -176,6 +182,7 @@ func newRouter(p *probe.Probe, profileDir, controllerURL, nodeName string, resol
 		aggs:          make(map[uint64]*manifest.Aggregator),
 		ctrToCgroup:   make(map[string]uint64),
 		cgroupFSPath:  make(map[uint64]string),
+		targets:       make(map[uint64]*postTarget),
 		denyList:      manifest.DefaultDenyList(),
 		profileDir:    profileDir,
 		controllerURL: controllerURL,
@@ -198,7 +205,8 @@ func (r *cgroupRouter) ReadLoss() manifest.LossReport {
 	tol := make(map[string]uint64, len(manifest.ToleratedStages))
 	var notInstrumented []string
 
-	if bpf, err := r.probe.LossStats(); err == nil {
+	bpf, err := r.bpfLossStats()
+	if err == nil {
 		for k, v := range bpf {
 			if manifest.IsToleratedStage(k) {
 				tol[k] = v
@@ -224,9 +232,38 @@ func (r *cgroupRouter) ReadLoss() manifest.LossReport {
 	return manifest.LossReport{ByStage: by, Tolerated: tol, NotInstrumented: notInstrumented}
 }
 
+// postTarget is the cached destination for a container's profile POST. The
+// owning workload is resolved at container START — when the pod and its
+// ReplicaSet reliably exist — so the stop/flush path can POST without a live K8s
+// lookup that races pod/RS garbage collection (OSS-5 boundary A). pod carries the
+// namespace/name needed to address the POST; resolved reports whether the
+// start-time lookup completed (deployment may legitimately be "" for an untracked
+// owner). Unresolved targets fall back to a best-effort live lookup at stop.
+type postTarget struct {
+	containerID string
+	pod         container.PodMeta
+	deployment  string
+	imageRef    string
+	resolved    bool
+}
+
+// bpfLossStats reads the in-kernel per-CPU loss counters, guarding a nil probe
+// (used in unit tests that construct a router without a live BPF object) so the
+// reader degrades to not_instrumented rather than panicking.
+func (r *cgroupRouter) bpfLossStats() (map[string]uint64, error) {
+	if r.probe == nil {
+		return nil, fmt.Errorf("no probe")
+	}
+	return r.probe.LossStats()
+}
+
 // onContainerStart is called by the NRI plugin when a container's cgroup ID
 // is resolved. A new Aggregator is created for the container, seeded with the
 // R2 attach evidence (attach time + whether a process was already running).
+//
+// In K8s mode it also resolves and caches the owning workload now, while the pod
+// and ReplicaSet still exist, so the final POST never depends on a live lookup at
+// stop time (OSS-5).
 func (r *cgroupRouter) onContainerStart(info container.StartInfo) {
 	agg := manifest.NewAggregator(info.ContainerID, "")
 	agg.RecordAttach(info.AttachTime, info.ProcessAlreadyRunning)
@@ -234,10 +271,33 @@ func (r *cgroupRouter) onContainerStart(info container.StartInfo) {
 	// during THIS window (schema v3). The router is the process-wide LossReader.
 	agg.SetLossReader(r)
 
+	target := &postTarget{containerID: info.ContainerID, pod: info.Pod}
+
+	// Resolve the owning workload at start, when the pod and its ReplicaSet are
+	// healthy. A failure here is non-fatal: target.resolved stays false and the
+	// stop path retries with a best-effort live lookup (which only then races GC).
+	if r.controllerURL != "" && r.resolver != nil && info.Pod.Namespace != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		dep, imageRef, err := r.resolver.ResolveWorkload(ctx, info.Pod.Namespace, info.Pod.Name)
+		cancel()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sensor: start-time workload resolve for %s/%s failed (%v) — will retry at stop\n",
+				info.Pod.Namespace, info.Pod.Name, err)
+		} else {
+			target.deployment = dep
+			target.imageRef = imageRef
+			target.resolved = true
+			if imageRef != "" {
+				agg.SetImageRef(imageRef)
+			}
+		}
+	}
+
 	r.mu.Lock()
 	r.aggs[info.CgroupID] = agg
 	r.ctrToCgroup[info.ContainerID] = info.CgroupID
 	r.cgroupFSPath[info.CgroupID] = info.CgroupFSPath
+	r.targets[info.CgroupID] = target
 	r.mu.Unlock()
 
 	fmt.Fprintf(os.Stderr, "sensor: tracking  container=%s cgroup=%d startObserved=%t\n",
@@ -251,20 +311,37 @@ func (r *cgroupRouter) onContainerStart(info container.StartInfo) {
 func (r *cgroupRouter) onContainerStop(containerID string, cgroupID uint64, pod container.PodMeta) {
 	r.mu.Lock()
 	agg, ok := r.aggs[cgroupID]
+	target := r.targets[cgroupID]
 	delete(r.aggs, cgroupID)
 	delete(r.ctrToCgroup, containerID)
 	delete(r.cgroupFSPath, cgroupID)
+	delete(r.targets, cgroupID)
 	r.mu.Unlock()
 
 	if !ok {
 		return
 	}
 
+	// Prefer the start-time target (pod metadata captured before GC). Fall back to
+	// the NRI-supplied pod and a bare target if start tracking somehow missed it.
+	if target == nil {
+		target = &postTarget{containerID: containerID, pod: pod}
+	}
+	if target.pod.Namespace == "" {
+		target.pod = pod
+	}
+
+	r.flush(agg, target)
+}
+
+// flush writes/POSTs a single container's profile. Shared by onContainerStop and
+// the SIGTERM flush path (flushAll).
+func (r *cgroupRouter) flush(agg *manifest.Aggregator, target *postTarget) {
 	snap := agg.Snapshot()
 
 	// Standalone mode: write to profile directory.
 	if r.profileDir != "" {
-		dir := filepath.Join(r.profileDir, containerID)
+		dir := filepath.Join(r.profileDir, target.containerID)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			fmt.Fprintf(os.Stderr, "sensor: create profile dir %s: %v\n", dir, err)
 		} else {
@@ -285,34 +362,83 @@ func (r *cgroupRouter) onContainerStop(containerID string, cgroupID uint64, pod 
 		}
 	}
 
-	// K8s mode: resolve deployment + image ref, POST to controller.
-	// Filtering is done by the Deployment owner lookup — pods without a Deployment owner are skipped.
-	// Note: we do not rely on pod.Annotations because NRI does not guarantee forwarding of
-	// Kubernetes pod annotations in all runtime configurations (e.g. kind).
-	if r.controllerURL != "" && pod.Namespace != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+	// K8s mode: POST to controller. The owning workload was resolved at container
+	// start (target.resolved); we POST from that cache so the stop path never
+	// depends on a live K8s lookup that races pod/ReplicaSet GC (OSS-5). Only when
+	// start-time resolution did not complete (e.g. a very short-lived container, or
+	// a transient API error at start) do we fall back to a best-effort live lookup.
+	// Note: we do not rely on pod.Annotations because NRI does not guarantee
+	// forwarding of Kubernetes pod annotations in all runtime configurations (e.g. kind).
+	if r.controllerURL == "" || target.pod.Namespace == "" {
+		return
+	}
 
-		dep, imageRef, err := r.resolver.ResolveWorkload(ctx, pod.Namespace, pod.Name)
+	dep, imageRef := target.deployment, target.imageRef
+	if !target.resolved {
+		if r.resolver == nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		d, ir, err := r.resolver.ResolveWorkload(ctx, target.pod.Namespace, target.pod.Name)
+		cancel()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "sensor: K8s lookup failed for %s/%s: %v\n", pod.Namespace, pod.Name, err)
+			fmt.Fprintf(os.Stderr, "sensor: K8s lookup failed for %s/%s: %v\n", target.pod.Namespace, target.pod.Name, err)
 			return
 		}
-		if dep == "" {
-			fmt.Fprintf(os.Stderr, "sensor: pod %s/%s has no tracked workload owner (Deployment/StatefulSet) — skipping POST\n", pod.Namespace, pod.Name)
-			return
-		}
-		// Set image ref on aggregator now that we have it from K8s metadata.
-		if imageRef != "" {
-			agg.SetImageRef(imageRef)
-		}
-		// Re-snapshot to include the image ref we just set.
+		dep, imageRef = d, ir
+	}
+	if dep == "" {
+		fmt.Fprintf(os.Stderr, "sensor: pod %s/%s has no tracked workload owner (Deployment/StatefulSet) — skipping POST\n", target.pod.Namespace, target.pod.Name)
+		return
+	}
+	// Ensure the image ref is on the snapshot.
+	if imageRef != "" {
+		agg.SetImageRef(imageRef)
 		snap = agg.Snapshot()
-		if err := sensor.PostProfile(ctx, r.controllerURL, pod.Namespace, dep, pod.Name, r.nodeName, snap); err != nil {
-			fmt.Fprintf(os.Stderr, "sensor: POST to controller failed: %v\n", err)
-		} else {
-			fmt.Fprintf(os.Stderr, "sensor: profile posted → %s/%s image=%s\n", pod.Namespace, dep, imageRef)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := sensor.PostProfile(ctx, r.controllerURL, target.pod.Namespace, dep, target.pod.Name, r.nodeName, snap); err != nil {
+		fmt.Fprintf(os.Stderr, "sensor: POST to controller failed: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "sensor: profile posted → %s/%s image=%s\n", target.pod.Namespace, dep, imageRef)
+	}
+}
+
+// flushAll snapshots and POSTs/writes every currently-tracked container. It is
+// invoked on SIGTERM/SIGINT so a sensor restart, rollout, or node drain does not
+// silently drop the in-flight generation of every running container (OSS-5
+// secondary loss). Each container is claimed by deleting it from the maps under
+// the lock, so a concurrent onContainerStop cannot double-flush.
+func (r *cgroupRouter) flushAll() {
+	r.mu.Lock()
+	pending := make([]struct {
+		agg    *manifest.Aggregator
+		target *postTarget
+	}, 0, len(r.aggs))
+	for cg, agg := range r.aggs {
+		target := r.targets[cg]
+		if target == nil {
+			target = &postTarget{}
 		}
+		pending = append(pending, struct {
+			agg    *manifest.Aggregator
+			target *postTarget
+		}{agg, target})
+		delete(r.aggs, cg)
+		delete(r.cgroupFSPath, cg)
+		delete(r.targets, cg)
+	}
+	r.ctrToCgroup = make(map[string]uint64)
+	r.mu.Unlock()
+
+	if len(pending) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "sensor: flushing %d in-flight profile(s) on shutdown\n", len(pending))
+	for _, p := range pending {
+		r.flush(p.agg, p.target)
 	}
 }
 

@@ -478,6 +478,45 @@ too). Most importantly: **check `event_loss.total` before trusting absence.**
 
 ### The underlying pattern
 
+## 5. Final-generation loss on ungraceful sensor exit (SIGKILL)
+
+### What happens
+
+A container's observations are accumulated in an in-memory aggregator and POSTed to
+the controller (or written to disk) only when the container stops, and — since the
+OSS-5 fix — also when the sensor receives `SIGTERM`/`SIGINT` (it now flushes every
+in-flight profile before exiting). The owning workload is resolved and cached at
+container **start**, so the final POST no longer depends on a live Kubernetes lookup
+that races pod/ReplicaSet garbage collection at stop time (the original OSS-5 loss).
+
+The remaining window: if the sensor process is **`SIGKILL`ed** (OOM-kill, `kubectl
+delete pod --force --grace-period=0`, node hard-power-loss) it has no opportunity to
+flush. Every container being tracked at that instant loses the observations
+accumulated since its last successful POST.
+
+### Risk level
+
+**Low and bounded, but it produces a *truncated* profile, not a wrong one.** The
+loss is always in the conservative direction — fewer observed paths than truth —
+which is exactly the error a downstream gate must not silently trust.
+
+### Workaround / downstream contract
+
+- Give the sensor DaemonSet a non-trivial `terminationGracePeriodSeconds` so the
+  graceful-flush path (SIGTERM) is used on rollouts and drains.
+- A profile produced across a `SIGKILL` of the sensor must be treated as
+  **truncated**: it must **not** yield a `not_affected`/`not_loaded` verdict
+  downstream (same philosophy as the event-loss gate in §4 — absence of observation
+  in a truncated window is not evidence of absence of use).
+
+### Long-term fix direction
+
+Periodic incremental flush (durable spool) so the unflushed delta is bounded by the
+flush interval rather than by the whole container lifetime. Tracked separately; the
+stop-path and SIGTERM-path correctness (OSS-5) is the prerequisite and is now in place.
+
+---
+
 All three gaps are instances of **incomplete profiling window coverage**. The confidence
 score surfaces this systematically:
 

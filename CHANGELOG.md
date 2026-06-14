@@ -59,6 +59,27 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
   allowlisting the cgroup, closing the container-start race that would otherwise
   record spurious `untracked_cgroup` event loss on every clean start.
 
+### Fixed
+
+- **StopContainer generation loss (OSS-5).** The sensor previously resolved a
+  container's owning workload (Pod → ReplicaSet → Deployment, three live
+  Kubernetes GETs) **at stop time** to decide where to POST its final profile.
+  StopContainer fires during pod delete / scale-to-0 / rolling update — exactly
+  when the pod and its ReplicaSet are being garbage-collected — so a 404 on that
+  lookup silently dropped the entire final generation before it was ever sent
+  (no retry, no cache). For a single-generation workload that is the whole
+  profile, producing a merged profile silently short of what was observed. The
+  owning workload is now resolved **and cached at container start**, when the pod
+  and ReplicaSet reliably exist; the stop path POSTs from that cache with no live
+  Kubernetes dependency. A best-effort live lookup remains only as a fallback when
+  start-time resolution did not complete.
+- **In-flight profiles are now flushed on `SIGTERM`/`SIGINT`.** A sensor restart,
+  rollout, or node drain previously dropped the accumulated generation of every
+  currently-tracked container (the signal handler only closed the ring buffer).
+  The sensor now snapshots and POSTs/writes every in-flight container before exit.
+  The residual `SIGKILL`-with-no-graceful-stop window is documented in
+  `docs/KNOWN-LIMITATIONS.md` §5 and such profiles must be treated as truncated.
+
 ## [0.1.1] - 2026-06-10
 
 ### Added
