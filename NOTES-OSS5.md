@@ -2,7 +2,8 @@
 
 Working branch: `feat/oss-5-stop-generation-loss` (off latest `main`, ce81716).
 
-Status: **Phase 1 complete — paused for scope agreement before Phase 2 fix.**
+Status: **Phase 1 + Phase 2 complete.** Scope agreed: (a) resolve+cache owner at
+start, (b) flush on SIGTERM, (c) controller monotone-merge property test.
 
 ---
 
@@ -89,7 +90,74 @@ monotone-merge property test proposed for Phase 2 to lock that invariant in.)
 
 ---
 
-## Phase 2 — Fix (proposed; not yet implemented — awaiting scope sign-off)
+## Phase 2 — Fix (IMPLEMENTED)
+
+### What changed
+
+**OSS sensor (`tracepod`):**
+- `internal/container/nri.go` — `StartInfo` gains `Pod PodMeta`; `adopt` plumbs pod
+  metadata from `StartContainer` (cached at CreateContainer) and `Synchronize`
+  through to `onStart`.
+- `cmd/sensor/main.go` — new `postTarget` cached per cgroup at `onContainerStart`,
+  which now resolves the owning workload (deployment + imageRef) **at start**, when
+  the pod/ReplicaSet exist. `onContainerStop` POSTs from that cache via a shared
+  `flush(agg, target)` helper — **no live K8s lookup at stop** (a best-effort live
+  lookup remains only as a fallback when start-time resolution didn't complete).
+  `flushAll()` flushes every in-flight container and is wired into the
+  SIGTERM/SIGINT handler before `p.Close()`. `ReadLoss` guards a nil probe so the
+  router is unit-testable.
+
+**Controller (`neeva` / `ebpf-hardener`):**
+- `internal/controller/db/monotone_merge_test.go` — the conservative-merge
+  invariant test (additive ingest already satisfied it; the test locks it in).
+
+### Tests (all green)
+
+- `cmd/sensor` `TestStopLoss_*` (run on the Linux `k8s-dev` Lima VM, `go test`):
+  - `StartResolveSurvivesGC` — **regression**: fully-observed container whose
+    resolver fails at stop (GC) still POSTs its final generation from the start-time
+    cache.
+  - `FlushAllOnShutdown` — SIGTERM flush POSTs in-flight container despite GC.
+  - `FlushAllClaimsExactlyOnce` — flush + concurrent stop never double-POST.
+  - `NoTrackedOwnerSkips` — cached "no owner" decision skips POST with no stop-time
+    lookup (resolve called exactly once, at start).
+- `internal/sensor/oss5_stop_loss_repro_test.go` — Phase-1 repro (runs anywhere).
+- `neeva` `TestMonotoneMerge_*` — 50 randomized generation sequences + empty-gen
+  no-op; merged observed-path set never shrinks.
+
+### Lifecycle matrix
+
+| Scenario | Mechanism | Lands final generation |
+|----------|-----------|------------------------|
+| fresh-start-then-stop | resolve cached at StartContainer | ✅ (cache) |
+| adopt-then-stop (Synchronize) | resolve cached at adopt | ✅ (cache) |
+| scale-to-0 / rolling update | RS may be GC'd at stop; cache used | ✅ (cache) |
+| pod delete | pod GC'd at stop; cache used | ✅ (cache) |
+| sensor restart / rollout / drain | SIGTERM → flushAll | ✅ (flush) |
+| **SIGKILL of sensor** | no graceful exit possible | ❌ residual — see below |
+
+### Residual window
+
+`SIGKILL` of the sensor (OOM, `--force --grace-period=0`, hard power loss) cannot
+flush. Documented in `docs/KNOWN-LIMITATIONS.md` §5: such profiles are **truncated**
+and must not yield `not_affected`/`not_loaded` downstream (ties to the WP3 gate
+philosophy and the §4 event-loss gate). Long-term: periodic durable spool bounds the
+unflushed delta.
+
+### WP0-F live-capture retry
+
+The boundary is now proven and fixed deterministically (regression test green on
+the Linux VM). The WP0-F degraded-workload live capture that failed 3× failed
+because the adopt-then-stop sequence dropped the final generation at the stop-time
+resolve; with resolution cached at start that generation now lands. A full live
+re-capture in a kind-in-Lima cluster is the natural validation but was not run in
+this session (needs the controller deployed + a degraded workload staged); the unit
++ property tests cover the mechanism. Flagged for the WP0-F owner to retire the
+constructed-fixture caveat once re-captured.
+
+---
+
+## Phase 2 — original proposal (for reference)
 
 **Shape (boundary A):** resolve + cache the workload owner (deployment/statefulset)
 and imageRef at container **start** (`onContainerStart`, when the pod and RS

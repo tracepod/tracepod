@@ -27,6 +27,11 @@ type StartInfo struct {
 	CgroupFSPath          string
 	AttachTime            time.Time
 	ProcessAlreadyRunning bool
+	// Pod carries the Kubernetes pod metadata known at start time. It lets the
+	// caller resolve and cache the owning workload while the pod (and its
+	// ReplicaSet) reliably exist, so the stop path can POST without a live K8s
+	// lookup that races pod/RS garbage collection (OSS-5). Empty in non-K8s runs.
+	Pod PodMeta
 }
 
 // PodMeta contains the Kubernetes pod metadata available from the NRI PodSandbox
@@ -163,6 +168,7 @@ func (p *Plugin) StartContainer(
 ) error {
 	p.mu.Lock()
 	cgPath, ok := p.paths[ctr.GetId()]
+	pod := p.podMeta[ctr.GetId()] // cached at CreateContainer; zero value if absent
 	p.mu.Unlock()
 	if !ok {
 		// Container was not seen in CreateContainer (e.g. predated sensor startup).
@@ -174,7 +180,7 @@ func (p *Plugin) StartContainer(
 	// to exec its entrypoint, so it wins the startup race (alreadyRunning=false).
 	// resolveCgroupPath turns the raw NRI cgroupsPath (which may be in systemd
 	// slice form) into an absolute /sys/fs/cgroup path.
-	p.adopt(ctr, resolveCgroupPath(cgPath), false)
+	p.adopt(ctr, resolveCgroupPath(cgPath), false, pod)
 	return nil
 }
 
@@ -197,7 +203,7 @@ func (p *Plugin) StartContainer(
 // the entrypoint has not exec'd, so a cgroup.procs probe would wrongly classify
 // every fresh start as a lost race. cgPath must already be resolved to an
 // absolute /sys/fs/cgroup path.
-func (p *Plugin) adopt(ctr *api.Container, cgPath string, alreadyRunning bool) {
+func (p *Plugin) adopt(ctr *api.Container, cgPath string, alreadyRunning bool, pod PodMeta) {
 	id, err := CgroupIDFromPath(cgPath)
 	if err != nil {
 		// Log and continue — don't block the container from starting.
@@ -225,6 +231,7 @@ func (p *Plugin) adopt(ctr *api.Container, cgPath string, alreadyRunning bool) {
 			CgroupFSPath:          cgPath,
 			AttachTime:            attachTime,
 			ProcessAlreadyRunning: alreadyRunning,
+			Pod:                   pod,
 		})
 	}
 
@@ -260,19 +267,23 @@ func (p *Plugin) Synchronize(
 		if cgPath == "" {
 			continue
 		}
-		p.mu.Lock()
-		p.paths[ctr.GetId()] = cgPath
+		var pm PodMeta
 		if pod := podByID[ctr.GetPodSandboxId()]; pod != nil && pod.GetNamespace() != "" {
-			p.podMeta[ctr.GetId()] = PodMeta{
+			pm = PodMeta{
 				Namespace:   pod.GetNamespace(),
 				Name:        pod.GetName(),
 				Annotations: pod.GetAnnotations(),
 			}
 		}
+		p.mu.Lock()
+		p.paths[ctr.GetId()] = cgPath
+		if pm.Namespace != "" {
+			p.podMeta[ctr.GetId()] = pm
+		}
 		p.mu.Unlock()
 
 		fmt.Fprintf(os.Stderr, "sensor: Synchronize adopting running id=%s\n", ctr.GetId())
-		p.adopt(ctr, resolveCgroupPath(cgPath), true)
+		p.adopt(ctr, resolveCgroupPath(cgPath), true, pm)
 	}
 	return nil, nil
 }
