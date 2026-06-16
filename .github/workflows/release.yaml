@@ -72,7 +72,7 @@ jobs:
   # Build and push the arm64 sensor image on a native arm64 runner.
   docker-sensor-arm64:
     name: sensor image (arm64)
-    runs-on: ubuntu-24.04-arm64
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - name: Log in to GHCR
