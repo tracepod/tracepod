@@ -52,6 +52,10 @@ type BuildOptions struct {
 	// Empty = skip push.
 	PushRef string
 
+	// HardenerVersion is recorded in the removal manifest's tooling field for
+	// audit. Empty falls back to "unknown".
+	HardenerVersion string
+
 	// IncludePaths are absolute-in-image directory paths to force-include via
 	// directory-inclusion. Every regular file found under each path in the
 	// extracted staging directory is added to the manifest with
@@ -105,6 +109,16 @@ type BuildResult struct {
 
 	// PushedRef is the registry reference the image was pushed to.
 	PushedRef string
+
+	// RemovalManifest is the removed-set for this build: packages present in the
+	// source image and entirely absent from the hardened image (OSS-3 / WP3
+	// contract). Nil only if the source package scan failed (non-fatal — the
+	// caller emits a warning); empty Removed when nothing was removed.
+	RemovalManifest *RemovalManifest
+
+	// RemovalManifestErr records a non-fatal failure to produce the removal
+	// manifest (e.g. syft missing). The image build still succeeded.
+	RemovalManifestErr error
 }
 
 // scratchEssentials are files that must be present for a FROM-scratch image to
@@ -304,6 +318,31 @@ func BuildImage(
 		SourceDigest:    sourceDigest,
 		SourceSize:      sourceSize,
 	}
+
+	// Produce the removed-set (OSS-3): scan the SAME extracted source tree the
+	// build consumed (provably the source digest above — no re-pull, no
+	// re-resolve) for OS packages, then set-difference against the finalised
+	// retained file set. layer.Digest()/Size() above already materialised the
+	// layer, so m.Files now reflects the true hardened contents (incl. expanded
+	// symlink targets). Source-scan failure is non-fatal: the image is already
+	// built; the caller emits a warning.
+	hardenerVersion := opts.HardenerVersion
+	if hardenerVersion == "" {
+		hardenerVersion = "unknown"
+	}
+	retained := make([]string, 0, len(m.Files))
+	for p := range m.Files {
+		retained = append(retained, p)
+	}
+	removalManifest, removalErr := GenerateRemovalManifest(ctx, stagingDir, RetainedSetFromKeys(retained), RemovalMeta{
+		SourceDigest:    sourceDigest.String(),
+		SourcePlatform:  opts.Platform,
+		HardenedDigest:  digest.String(),
+		HardenedRef:     hardenedRef(opts.PushRef, layoutRef, digest),
+		HardenerVersion: hardenerVersion,
+	})
+	result.RemovalManifest = removalManifest
+	result.RemovalManifestErr = removalErr
 
 	// Push if requested.
 	if opts.PushRef != "" {
@@ -690,6 +729,21 @@ func ensureParentDirs(tw *tar.Writer, path string, emitted map[string]struct{}, 
 		emitted[dir] = struct{}{}
 	}
 	return nil
+}
+
+// hardenedRef returns the repo[:tag]@digest reference for the hardened image,
+// for the removal manifest's hardened_ref field. It pins whichever reference the
+// build used (the push target when pushed, else the layout ref) to the produced
+// digest.
+func hardenedRef(pushRef, layoutRef string, digest v1.Hash) string {
+	ref := pushRef
+	if ref == "" {
+		ref = layoutRef
+	}
+	if ref == "" {
+		return ""
+	}
+	return ref + "@" + digest.String()
 }
 
 // archFromPlatform returns the architecture component of a "os/arch" string.

@@ -1,3 +1,63 @@
+# NOTES — OSS-3: Hardener Removed-Set Field (WP3 contract producer)
+
+Working branch: `feat/oss-3-removal-manifest`.
+Produces the removed-set manifest the controller (WP3) consumes for removal VEX.
+This repo only produces the manifest; the schema is the sole shared artifact.
+
+## Data-model diagnosis (the scope-sizer)
+
+**File-only.** At build time the hardener holds the source as an extracted
+filesystem (`stagingDir`, all layers) and the retained set as `m.Files` — both
+**file** sets, no package view. `syft` ran only against the *hardened* output and
+only under `--sbom`. So the removed-set is **not** a near-direct set-difference:
+it needs a source-side package→files map that did not exist. That mapping is the
+bulk of OSS-3.
+
+## What was built
+
+- `hardener/removal.go`:
+  - `scanSourcePackages` runs `syft scan dir:<stagingDir> -o syft-json` — the
+    **same digest-pinned tree the build consumed** (no re-pull / re-resolve), so
+    the package view and file view are provably one image. OS catalogers
+    (dpkg/apk/rpm) populate `metadata.files[].path` from the package DBs in the
+    full staging tree; syft version comes from the syft-json `descriptor`.
+  - `ComputeRemovedSet` (pure, unit-tested) — `removed = { p : owned(p) ∩
+    retained = ∅ }`. Partial retention excluded (R2); multi-owner files fall out
+    of set logic; zero-owned-file packages skipped (no file evidence).
+  - `RemovalManifest` matches the controller's committed `RemovalManifest`
+    reader exactly: `{schema, schema_version="1.0", source_digest,
+    hardened_digest, hardened_ref, removed[]{purl,name,version,paths}}`, plus
+    additive `source_platform` + `tooling` the consumer ignores.
+- `BuildImage` computes it after the layer is materialised (m.Files final, incl.
+  symlink expansion) and before `stagingDir` cleanup; attaches to `BuildResult`.
+  `cmd/harden` writes `removal-manifest.json` **unconditionally** on success
+  (syft-missing → non-fatal warning).
+- `docs/removal-manifest-schema/v1.schema.json` + README; drift guard +
+  conformance tests in `hardener/removal_test.go`; e2e walk-the-image assertion
+  (`hack/e2e/run-e2e.sh` Phase 6b) + syft install in `e2e.yaml`.
+
+## Contract decisions (from reading WP3's committed fixtures)
+
+- WP3's `removal_manifest.go` + `testdata/removal/removed-set.json` are the
+  contract. **No findings-source field** — the generator reads CVE↔purl from the
+  controller's own `reachability.Findings`, NOT the manifest. So findings-source
+  was **dropped** and **no grype** added (confirmed against the fixture, not
+  guessed). The OSS-3 prompt's `manifest_version`/`removed_packages` names were
+  reconciled to the committed `schema_version`/`removed`.
+- Purls are emitted verbatim from syft; the controller normalises with
+  `subcomponentPURL` (strips `?`/`#` qualifiers) when matching findings, so the
+  `?arch=` qualifier is preserved here and matches fine.
+
+## REQUIRED follow-up (separate controller session — do not orphan)
+
+WP3 ships a temporary findings bridge (reconstructs removed-set context from the
+latest reachability run for the same digest). Now that this manifest exists, the
+controller must read the removed-set from the manifest and drop the bridge,
+keeping CVE association on its own findings source — with the round-trip +
+removed-set fixtures still green. Controller-repo change only.
+
+---
+
 # NOTES — OSS-4: Sensor Event-Loss Counters (Profile Schema v3)
 
 Working branch: `feat/profile-schema-v3-event-loss`

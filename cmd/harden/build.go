@@ -94,13 +94,14 @@ func runBuild(args []string) int {
 	}
 
 	opts := hardener.BuildOptions{
-		Platform:     *platform,
-		Keychain:     kc,
-		Insecure:     *insecure,
-		WorkDir:      *workDir,
-		PushRef:      *pushRef,
-		IncludePaths: includePaths,
-		EnsurePaths:  ensurePaths,
+		Platform:        *platform,
+		Keychain:        kc,
+		Insecure:        *insecure,
+		WorkDir:         *workDir,
+		PushRef:         *pushRef,
+		IncludePaths:    includePaths,
+		EnsurePaths:     ensurePaths,
+		HardenerVersion: version,
 	}
 
 	result, err := hardener.BuildImage(ctx, *sourceRef, m, *outputDir, opts)
@@ -162,6 +163,20 @@ func runBuild(args []string) int {
 
 	if result.Pushed {
 		fmt.Printf("Pushed:      %s (%s)\n", result.PushedRef, result.Digest)
+	}
+
+	// Emit the removal manifest unconditionally on a successful harden (OSS-3).
+	// It travels with the SBOMs through the same output directory; consumers that
+	// don't want it ignore it. A source-scan failure is non-fatal — warn only.
+	if result.RemovalManifestErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: removal manifest not produced: %v\n", result.RemovalManifestErr)
+	} else if result.RemovalManifest != nil {
+		path, werr := hardener.WriteRemovalManifest(*outputDir, result.RemovalManifest)
+		if werr != nil {
+			fmt.Fprintf(os.Stderr, "warning: write removal manifest: %v\n", werr)
+		} else {
+			fmt.Printf("Removed pkgs: %d (%s)\n", len(result.RemovalManifest.Removed), path)
+		}
 	}
 
 	if *sbom {

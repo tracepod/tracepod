@@ -58,6 +58,12 @@ jobs:
 
       - uses: azure/setup-helm@v4
 
+      # ── syft (required for the harden step's removal manifest, OSS-3) ─────────
+      - name: Install syft
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sudo sh -s -- -b /usr/local/bin
+
       # ── E2E test ─────────────────────────────────────────────────────────────
       # run-e2e.sh detects that tracepod-sensor:e2e already exists (built above)
       # and skips Phase 1 (sensor image build). All other phases run normally.

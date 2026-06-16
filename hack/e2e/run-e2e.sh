@@ -262,6 +262,56 @@ rm -rf /tmp/hardened-nginx-oci
   --platform "${PLATFORM}" \
   --insecure
 
+# ── Phase 6b: removal manifest assertion (OSS-3) ────────────────────────────────
+info "Phase 6b: validating removal manifest"
+REMOVAL_MANIFEST=/tmp/hardened-nginx-oci/removal-manifest.json
+if [ ! -f "$REMOVAL_MANIFEST" ]; then
+  fail "removal manifest not emitted at $REMOVAL_MANIFEST (is syft installed?)"; exit 1
+fi
+if command -v jq >/dev/null 2>&1; then
+  SCHEMA=$(jq -r '.schema' "$REMOVAL_MANIFEST")
+  SCHEMA_VER=$(jq -r '.schema_version' "$REMOVAL_MANIFEST")
+  REMOVED_N=$(jq -r '.removed | length' "$REMOVAL_MANIFEST")
+  info "removal-manifest schema=${SCHEMA} version=${SCHEMA_VER} removed_packages=${REMOVED_N}"
+  [ "$SCHEMA" = "tracepod.dev/removal-manifest" ] || { fail "unexpected schema: $SCHEMA"; exit 1; }
+  [ "$SCHEMA_VER" = "1.0" ] || { fail "unexpected schema_version: $SCHEMA_VER"; exit 1; }
+
+  # Walk both images' filesystems via docker export and normalise to absolute
+  # paths (tar entries are slash-less; directories carry a trailing slash).
+  list_image_paths() {  # $1 = image ref → stdout: sorted, unique, absolute paths
+    local cid
+    cid=$(docker create "$1")
+    docker export "$cid" | tar -tf - | sed -e 's#^\./##' -e 's#^#/#' -e 's#/\{2,\}#/#g' -e 's#/$##'
+    docker rm "$cid" >/dev/null
+  }
+  list_image_paths nginx:alpine        | sort -u > /tmp/src-paths.txt
+  list_image_paths "${HARDENED_IMAGE}" | sort -u > /tmp/hardened-paths.txt
+
+  # R2 / integration check: every listed package must have ZERO files in the
+  # hardened image and AT LEAST ONE in the source image.
+  RM_FAILED=0
+  while IFS= read -r pkg; do
+    purl=$(echo "$pkg" | jq -r '.purl')
+    in_source=0
+    while IFS= read -r p; do
+      [ -z "$p" ] && continue
+      if grep -Fxq "$p" /tmp/hardened-paths.txt; then
+        warn "removed pkg ${purl}: path STILL PRESENT in hardened image: $p"
+        RM_FAILED=1
+      fi
+      if grep -Fxq "$p" /tmp/src-paths.txt; then in_source=1; fi
+    done < <(echo "$pkg" | jq -r '.paths[]?')
+    if [ "$in_source" -eq 0 ]; then
+      warn "removed pkg ${purl}: no listed path found in source image"
+      RM_FAILED=1
+    fi
+  done < <(jq -c '.removed[]' "$REMOVAL_MANIFEST")
+  [ "$RM_FAILED" -eq 0 ] || { fail "removal manifest assertion failed"; exit 1; }
+  info "removal manifest OK: ${REMOVED_N} package(s), zero retained files each, all present in source"
+else
+  warn "jq not found — skipping removal manifest assertion"
+fi
+
 # ── Phase 7: validate ──────────────────────────────────────────────────────────
 info "Phase 7: validating hardened nginx image"
 docker pull --quiet "${HARDENED_IMAGE}"
