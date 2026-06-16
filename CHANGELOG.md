@@ -8,6 +8,29 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Added
 
+- **Removal manifest** (OSS-3) — every successful `harden build` now writes
+  `removal-manifest.json` into the OCI output directory, alongside the SBOMs and
+  travelling through the same handoff channel. It is the machine-readable
+  removed-set the controller consumes to emit `component_not_present` removal-VEX
+  for the hardened image without ever re-scanning it:
+  - Lists every OS package present in the **source** image and **entirely absent**
+    from the hardened image (`purl` + version), with the source-image file paths
+    that drove each removal. A package with **any** retained file is **omitted** —
+    partial retention is not removal. Multi-owner files keep all their owners.
+  - **Facts only**: a set-difference, with no reachability, runtime,
+    justification, or VEX vocabulary, and **no CVE/findings source** — CVE
+    association stays the controller's concern.
+  - Derived by scanning the already-extracted, digest-pinned source staging tree
+    with `syft` (package→owned-files), then set-differencing against the finalised
+    hardened file set. Same source artifact as the build consumed — no re-pull.
+  - Emitted **unconditionally** on success (not behind `--sbom` or any flag);
+    a missing `syft` is a non-fatal warning. Carries additive `source_platform`
+    and `tooling` (hardener + syft versions) audit metadata the consumer ignores.
+- `v1.schema.json` (current) under `docs/removal-manifest-schema/`, with a
+  README field reference + versioning policy, and a schema-drift guard +
+  conformance tests mirroring the profile-schema pattern. The e2e harden flow now
+  walks both images and asserts each listed package has zero files in the hardened
+  image and at least one in the source.
 - **Profile schema v3** with sensor event-loss counters. The sensor now emits
   `schema_version: 3` (integer) and the profile document gains a top-level
   `event_loss` block so a downstream consumer can refuse "not observed ⇒ not

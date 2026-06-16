@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tracepod.com/removal-manifest-schema/v1.schema.json",
+  "title": "Tracepod removal manifest (schema v1)",
+  "description": "The removed-set the hardener writes to <output-dir>/removal-manifest.json on every successful harden. One document per hardened build. It lists every OS package present in the source image and entirely absent from the hardened image, with the source-image file paths that drove each removal. This is the OSS-3 producer for the WP3 removal-VEX contract: the controller consumes it to emit component_not_present attestations for the hardened image without re-scanning it. Facts only — no reachability, runtime, justification, or VEX vocabulary. CVE association is the controller's concern. The consumed subset (the fields the controller deserialises) is schema, schema_version, source_digest, hardened_digest, hardened_ref, removed; source_platform and tooling are additive audit metadata. See docs/removal-manifest-schema/README.md for the versioning policy and field semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "hardened_digest",
+    "tooling",
+    "removed"
+  ],
+  "properties": {
+    "schema": {
+      "description": "Contract identity shared with the controller (WP3). Always this constant for documents matching this schema.",
+      "const": "tracepod.dev/removal-manifest"
+    },
+    "schema_version": {
+      "description": "Removal-manifest schema version. Always the string \"1.0\" for documents matching this schema. A shape change bumps this in lockstep with a new docs/removal-manifest-schema file.",
+      "const": "1.0"
+    },
+    "source_digest": {
+      "description": "OCI manifest digest (sha256:...) of the source image the build consumed. The package view and the file view are both derived from this exact digest.",
+      "type": "string"
+    },
+    "source_platform": {
+      "description": "Platform of the source image scan, e.g. \"linux/arm64\". Additive audit metadata; per-package architecture is also encoded in each purl qualifier.",
+      "type": "string"
+    },
+    "hardened_digest": {
+      "description": "OCI manifest digest (sha256:...) of the hardened image. Product identity for the consumer's attestations.",
+      "type": "string"
+    },
+    "hardened_ref": {
+      "description": "repo[:tag]@digest of the hardened image (the push target when pushed, else the layout ref), pinned to hardened_digest.",
+      "type": "string"
+    },
+    "tooling": {
+      "description": "Versions of the tools that produced the removed-set. Additive audit metadata; not part of the consumed subset.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hardener": {
+          "description": "Hardener version (ldflags-injected; \"dev\"/\"unknown\" in unreleased builds).",
+          "type": "string"
+        },
+        "syft": {
+          "description": "Syft version that cataloged the source packages, taken from the syft-json descriptor.",
+          "type": "string"
+        }
+      }
+    },
+    "removed": {
+      "description": "Packages present in the source image and entirely absent from the hardened image. A package with ANY retained file is NOT listed (partial retention is not removal). Empty array when nothing was removed.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["purl"],
+        "properties": {
+          "purl": {
+            "description": "package-url of the removed package, taken verbatim from the source SBOM (syft).",
+            "type": "string"
+          },
+          "name": {
+            "description": "Package name.",
+            "type": "string"
+          },
+          "version": {
+            "description": "Package version.",
+            "type": "string"
+          },
+          "paths": {
+            "description": "Source-image absolute paths owned by this package whose absence in the hardened image is the evidence of removal. Sorted and de-duplicated. Never a runtime claim.",
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
