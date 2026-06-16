@@ -172,6 +172,40 @@ func TestParseSyftPackages(t *testing.T) {
 	}
 }
 
+func TestFilterOwnedFiles(t *testing.T) {
+	root := t.TempDir()
+	// A regular file, a shared directory, a symlink, all under root.
+	mustWrite(t, filepath.Join(root, "usr/lib/libfoo.so.1"), "x")
+	if err := os.MkdirAll(filepath.Join(root, "usr/lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("libfoo.so.1", filepath.Join(root, "usr/lib/libfoo.so")); err != nil {
+		t.Fatal(err)
+	}
+
+	got := filterOwnedFiles(root, []string{
+		"/usr",                 // dir — dropped (shared namespace)
+		"/usr/lib",             // dir — dropped
+		"/usr/lib/libfoo.so.1", // file — kept
+		"/usr/lib/libfoo.so",   // symlink — kept
+		"/usr/lib/missing.so",  // absent from source tree — dropped
+	})
+	want := []string{"/usr/lib/libfoo.so.1", "/usr/lib/libfoo.so"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("filterOwnedFiles = %v, want %v", got, want)
+	}
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // --- schema conformance + drift guard ---------------------------------------
 
 const removalSchemaDir = "../docs/removal-manifest-schema"

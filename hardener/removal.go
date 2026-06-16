@@ -209,7 +209,43 @@ func scanSourcePackages(ctx context.Context, rootDir string) ([]SourcePackage, s
 	if err != nil {
 		return nil, "", fmt.Errorf("syft scan source: %w", err)
 	}
-	return parseSyftPackages(out)
+	pkgs, syftVersion, err := parseSyftPackages(out)
+	if err != nil {
+		return nil, "", err
+	}
+	// Reduce each package's owned paths to its actual file content. Package
+	// databases (notably apk) record the directories a package owns — /usr,
+	// /usr/lib, /etc — which are shared namespace, not the package's distinctive
+	// content. They persist in the hardened image as synthesised parents of other
+	// packages' retained files, so they are neither valid removal evidence nor a
+	// sound basis for the retention test. Drop them (and any DB-listed path absent
+	// from the source tree) by stat-ing against the same staging tree.
+	for i := range pkgs {
+		pkgs[i].Paths = filterOwnedFiles(rootDir, pkgs[i].Paths)
+	}
+	return pkgs, syftVersion, nil
+}
+
+// filterOwnedFiles keeps only the paths that exist in rootDir as non-directory
+// entries (regular files or symlinks): a package's distinctive, removable
+// content. Directories (shared namespace) and paths absent from the source tree
+// (which cannot be evidence of source presence) are dropped.
+func filterOwnedFiles(rootDir string, paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		info, err := os.Lstat(filepath.Join(rootDir, p))
+		if err != nil {
+			continue // not present in the source tree — cannot be removal evidence
+		}
+		if info.IsDir() {
+			continue // shared namespace, retained as a synthesised parent
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // syftDocument is the minimal subset of syft-json we read.
