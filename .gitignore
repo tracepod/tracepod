@@ -1,5 +1,7 @@
 # Compiled binaries
 bin/
+# goreleaser snapshot/build output
+dist/
 # Repo-root binaries from `go build ./cmd/...` (or ./hack/...) without -o bin/...
 /harden
 /sensor
