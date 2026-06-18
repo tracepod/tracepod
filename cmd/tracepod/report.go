@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+
 	reportschema "github.com/tracepod/tracepod/contracts/report-schema"
 )
 
