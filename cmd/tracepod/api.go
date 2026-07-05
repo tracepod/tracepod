@@ -89,8 +89,14 @@ func ListProfiles(ctx context.Context, baseURL, namespace string) ([]ProfileSumm
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET /api/v1/profiles: server returned %d", resp.StatusCode)
 	}
-	var all []ProfileSummary
-	if err := json.NewDecoder(resp.Body).Decode(&all); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read profiles: %w", err)
+	}
+	// The current controller wraps the list in a {"profiles":[…]} envelope; older
+	// builds returned a bare array. Accept both (API-shape drift reconciled in WP0).
+	all, err := decodeProfileList(body)
+	if err != nil {
 		return nil, fmt.Errorf("decode profiles: %w", err)
 	}
 	if namespace == "" {
@@ -103,6 +109,22 @@ func ListProfiles(ctx context.Context, baseURL, namespace string) ([]ProfileSumm
 		}
 	}
 	return filtered, nil
+}
+
+// decodeProfileList accepts either the {"profiles":[…]} envelope served by the
+// current controller or a bare [...] array from older builds.
+func decodeProfileList(body []byte) ([]ProfileSummary, error) {
+	var env struct {
+		Profiles []ProfileSummary `json:"profiles"`
+	}
+	if err := json.Unmarshal(body, &env); err == nil && env.Profiles != nil {
+		return env.Profiles, nil
+	}
+	var all []ProfileSummary
+	if err := json.Unmarshal(body, &all); err != nil {
+		return nil, err
+	}
+	return all, nil
 }
 
 // GetProfile fetches GET /api/v1/profiles/{ns}/{dep} and returns the raw JSON bytes.

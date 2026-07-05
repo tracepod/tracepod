@@ -44,6 +44,24 @@ packages, fewer CVEs.
 > sensor pod via `kubectl exec` (see Quick start below). The controller is required only
 > for multi-node aggregation and the managed UI.
 
+### Reachability & CVE reporting
+
+`tracepod cve-report <workload>` renders a **reachability report**: for every CVE
+a scanner finds in your image, whether the affected package was actually *loaded*
+during the profiling window — so you triage the CVEs your workload exercises, not
+the hundreds it never touches. See the
+[reachability quickstart](docs/reachability-quickstart.md) and the
+[`cve-report` CLI reference](docs/cli-cve-report.md).
+
+| Capability | Free | Pro |
+|------------|------|-----|
+| `cve-report` reachability report (loaded / not-loaded classification) | ✅ | ✅ |
+| `--findings` upload (classify an existing Trivy/Grype scan) | ✅ | ✅ |
+| VEX `not_affected` export from `not_loaded` findings | — | ✅ |
+
+The CLI is a pure rendering client: all classification and scoring happen in the
+controller; the analysis engine is never duplicated client-side.
+
 > **Important:** Only containers managed by Kubernetes (kubelet → containerd) or
 > started via `crictl` are profiled. Containers started with `docker run`,
 > `nerdctl run`, or `docker-compose` are silently ignored because the sensor

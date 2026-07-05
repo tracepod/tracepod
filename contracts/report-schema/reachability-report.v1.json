@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tracepod.dev/schema/reachability-report.v1.json",
+  "title": "Tracepod Reachability Report",
+  "description": "Versioned cross-repo contract: the OSS CLI (OSS-2) renders from this shape. A change to required fields, types, or the classification enum is BREAKING and requires a new vN file. Additive optional fields are non-breaking.",
+  "type": "object",
+  "required": ["schema", "schema_version", "header", "summary", "coverage", "attribution", "findings", "capabilities", "footer"],
+  "properties": {
+    "schema": {"const": "tracepod.dev/reachability-report"},
+    "schema_version": {"type": "string"},
+    "header": {
+      "type": "object",
+      "required": [
+        "image_ref", "image_digest", "platform", "profile_id", "namespace", "deployment",
+        "window_start", "window_end", "duration_seconds", "observed_path_count",
+        "observed_event_count", "coverage_score", "sensor_version", "syft_version",
+        "grype_version", "scanner", "findings_source", "generated_at", "known_limitations_ref"
+      ],
+      "properties": {
+        "image_ref": {"type": "string"},
+        "image_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "platform": {"type": "string"},
+        "profile_id": {"type": "string"},
+        "namespace": {"type": "string"},
+        "deployment": {"type": "string"},
+        "container": {"type": "string"},
+        "window_start": {"type": "string"},
+        "window_end": {"type": "string"},
+        "duration_seconds": {"type": "integer"},
+        "observed_path_count": {"type": "integer", "minimum": 0},
+        "observed_event_count": {"type": "integer", "minimum": 0},
+        "coverage_score": {"type": "integer"},
+        "sensor_version": {"type": "string"},
+        "syft_version": {"type": "string"},
+        "grype_version": {"type": "string"},
+        "scanner": {"type": "string"},
+        "scanner_db_timestamp": {"type": "string"},
+        "findings_source": {"type": "string", "enum": ["grype-scan", "grype-import", "trivy-import"]},
+        "generated_at": {"type": "string"},
+        "known_limitations_ref": {"type": "string"}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total", "loaded", "not_loaded", "indeterminate", "unmatched"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "loaded": {"type": "integer", "minimum": 0},
+        "not_loaded": {"type": "integer", "minimum": 0},
+        "indeterminate": {"type": "integer", "minimum": 0},
+        "unmatched": {"type": "integer", "minimum": 0}
+      }
+    },
+    "coverage": {
+      "description": "WP0 composite coverage score + component breakdown. Null only for legacy profiles.",
+      "type": ["object", "null"]
+    },
+    "attribution": {
+      "type": "object",
+      "required": ["syft_version", "total_paths", "attributed_paths", "net_attributed", "coverage_pct", "per_ecosystem"],
+      "properties": {
+        "syft_version": {"type": "string"},
+        "total_paths": {"type": "integer"},
+        "attributed_paths": {"type": "integer"},
+        "net_attributed": {"type": "integer"},
+        "coverage_pct": {"type": "number"},
+        "per_ecosystem": {"type": "object", "additionalProperties": {"type": "integer"}},
+        "warnings": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cve", "severity", "purl", "package", "version", "ecosystem", "classification", "evidence"],
+        "properties": {
+          "cve": {"type": "string"},
+          "severity": {"type": "string"},
+          "purl": {"type": "string"},
+          "package": {"type": "string"},
+          "version": {"type": "string"},
+          "ecosystem": {"type": "string"},
+          "classification": {"type": "string", "enum": ["loaded", "not_loaded", "indeterminate", "unmatched"]},
+          "matched_purl": {"type": "string"},
+          "evidence": {
+            "type": "object",
+            "required": ["reason"],
+            "properties": {
+              "reason": {"type": "string"},
+              "loaded": {
+                "type": "object",
+                "properties": {
+                  "reason": {"type": "string", "enum": ["observed", "pyc-derived", "elf-closure"]},
+                  "path": {"type": "string"},
+                  "access": {"type": "string"},
+                  "first_seen": {"type": "string"},
+                  "required_by": {"type": "string"}
+                }
+              },
+              "not_loaded": {
+                "type": "object",
+                "required": ["profiling_duration_seconds", "observed_path_count", "observed_event_count", "coverage_score", "statement"],
+                "properties": {
+                  "profiling_duration_seconds": {"type": "integer"},
+                  "observed_path_count": {"type": "integer"},
+                  "observed_event_count": {"type": "integer"},
+                  "coverage_score": {"type": "integer"},
+                  "statement": {"type": "string"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "required": ["vex_export"],
+      "properties": {
+        "vex_export": {"type": "boolean"}
+      }
+    },
+    "footer": {"type": "string"}
+  }
+}

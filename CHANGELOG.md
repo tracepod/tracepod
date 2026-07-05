@@ -6,6 +6,25 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`tracepod cve-report`** (OSS-2) — a new free-tier CLI subcommand that renders
+  the controller's Lite-served **reachability report**: for every CVE a scanner
+  finds, whether the affected package was actually *loaded* during the profiling
+  window (`loaded` / `not_loaded` / `indeterminate` / `unmatched`).
+  - Leads with the actionable slice: an all-severities summary line plus a
+    `High+Critical` cut, with a `--severity` filter to scope the table. `--verbose`
+    shows the coverage-score breakdown and attribution evidence; the report's
+    known-limitations footer is always printed verbatim.
+  - `--findings <file>` uploads a Trivy/Grype JSON scan instead of triggering a
+    server-side scan; `--output json` is byte-faithful to the controller payload.
+  - A **pure rendering client**: no matching, classification, scoring, or gating
+    happens client-side. Renders the server's `capabilities` block verbatim (the
+    Pro VEX-export line appears only when the controller reports it unavailable).
+  - The report shape is pinned by a committed JSON Schema
+    (`contracts/report-schema/reachability-report.v1.json`); CI fails if the schema
+    and the CLI's declared supported version diverge.
+
 ## [0.1.2] - 2026-06-16
 
 ### Added

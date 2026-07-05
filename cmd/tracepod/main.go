@@ -51,6 +51,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  profile list  [--namespace <ns>]                                     list profiling sessions\n")
 		fmt.Fprintf(os.Stderr, "  profile get   --namespace <ns> --deployment <name> [--output <file>] download manifest\n")
 		fmt.Fprintf(os.Stderr, "  profile stop  --namespace <ns> --deployment <name>                   stop profiling\n")
+		fmt.Fprintf(os.Stderr, "  cve-report    <workload|profile-id> [--findings <file>] [--severity <level>] [--output json] [--verbose]\n")
+		fmt.Fprintf(os.Stderr, "                                                                       render the reachability/CVE report\n")
 		fmt.Fprintf(os.Stderr, "  version                                                              print version\n")
 	}
 	flag.Parse()
@@ -69,6 +71,8 @@ func main() {
 	switch args[0] {
 	case "profile":
 		runProfile(args[1:], *kubeconfig, *ctrlNS)
+	case "cve-report":
+		runCVEReport(args[1:], *kubeconfig, *ctrlNS)
 	case "version":
 		fmt.Printf("tracepod %s (%s)\n", version, commit)
 	default:

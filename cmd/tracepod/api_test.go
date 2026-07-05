@@ -38,6 +38,24 @@ func TestListProfiles_All(t *testing.T) {
 	}
 }
 
+// TestListProfiles_Envelope covers the current controller shape: a
+// {"profiles":[…]} envelope rather than a bare array (WP0 API-shape drift).
+func TestListProfiles_Envelope(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"profiles": sampleProfiles()})
+	}))
+	defer srv.Close()
+
+	got, err := ListProfiles(context.Background(), srv.URL, "")
+	if err != nil {
+		t.Fatalf("ListProfiles (envelope): %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("want 2 profiles from envelope, got %d", len(got))
+	}
+}
+
 func TestListProfiles_NamespaceFilter(t *testing.T) {
 	srv := serveProfiles(sampleProfiles())
 	defer srv.Close()
