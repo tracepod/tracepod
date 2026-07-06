@@ -3,6 +3,9 @@ sensor:
   # access mode "s"). Higher event volume; event_loss counters surface any
   # ring-buffer pressure.
   traceStat: false
+  # postUnownedPodsNamespace: POST bare-pod profiles from this one namespace
+  # (the controller sandbox ns) so validation missing-file diffs work.
+  postUnownedPodsNamespace: ""
   image:
     repository: ghcr.io/tracepod/tracepod-sensor
     tag: latest
