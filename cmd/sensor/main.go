@@ -242,9 +242,19 @@ func (r *cgroupRouter) ReadLoss() manifest.LossReport {
 type postTarget struct {
 	containerID string
 	pod         container.PodMeta
-	deployment  string
-	imageRef    string
-	resolved    bool
+
+	// deployment/imageRef/resolved are written by resolveWorkloadAsync and read
+	// by the flush path, both under the router mutex.
+	deployment string
+	imageRef   string
+	resolved   bool
+
+	// resolveDone is non-nil when a start-time async resolve was launched and is
+	// closed when it finishes (success or failure). The flush path waits on it —
+	// bounded — before falling back to a live lookup, so a container that stops
+	// moments after starting still gets its start-time resolution (OSS-5: the
+	// live fallback is the path that races pod/ReplicaSet GC).
+	resolveDone chan struct{}
 }
 
 // bpfLossStats reads the in-kernel per-CPU loss counters, guarding a nil probe
@@ -261,9 +271,16 @@ func (r *cgroupRouter) bpfLossStats() (map[string]uint64, error) {
 // is resolved. A new Aggregator is created for the container, seeded with the
 // R2 attach evidence (attach time + whether a process was already running).
 //
-// In K8s mode it also resolves and caches the owning workload now, while the pod
-// and ReplicaSet still exist, so the final POST never depends on a live lookup at
-// stop time (OSS-5).
+// In K8s mode it also resolves and caches the owning workload, while the pod and
+// ReplicaSet still exist, so the final POST never depends on a live lookup at stop
+// time (OSS-5). That resolve is a live K8s API call, so it runs in a background
+// goroutine rather than inline: this hook is invoked once per already-running
+// container during the NRI Synchronize handshake, which containerd bounds to a ~2s
+// deadline. Resolving inline serialised one round-trip per container and blew that
+// deadline on busy nodes — containerd then dropped the plugin connection and the NRI
+// stub exited the process (silent exit-0 crashloop). The goroutine still starts at
+// container START, so it resolves before GC just as OSS-5 requires, while letting
+// Synchronize return in milliseconds.
 func (r *cgroupRouter) onContainerStart(info container.StartInfo) {
 	agg := manifest.NewAggregator(info.ContainerID, "")
 	agg.RecordAttach(info.AttachTime, info.ProcessAlreadyRunning)
@@ -272,26 +289,6 @@ func (r *cgroupRouter) onContainerStart(info container.StartInfo) {
 	agg.SetLossReader(r)
 
 	target := &postTarget{containerID: info.ContainerID, pod: info.Pod}
-
-	// Resolve the owning workload at start, when the pod and its ReplicaSet are
-	// healthy. A failure here is non-fatal: target.resolved stays false and the
-	// stop path retries with a best-effort live lookup (which only then races GC).
-	if r.controllerURL != "" && r.resolver != nil && info.Pod.Namespace != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		dep, imageRef, err := r.resolver.ResolveWorkload(ctx, info.Pod.Namespace, info.Pod.Name)
-		cancel()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "sensor: start-time workload resolve for %s/%s failed (%v) — will retry at stop\n",
-				info.Pod.Namespace, info.Pod.Name, err)
-		} else {
-			target.deployment = dep
-			target.imageRef = imageRef
-			target.resolved = true
-			if imageRef != "" {
-				agg.SetImageRef(imageRef)
-			}
-		}
-	}
 
 	r.mu.Lock()
 	r.aggs[info.CgroupID] = agg
@@ -302,6 +299,41 @@ func (r *cgroupRouter) onContainerStart(info container.StartInfo) {
 
 	fmt.Fprintf(os.Stderr, "sensor: tracking  container=%s cgroup=%d startObserved=%t\n",
 		info.ContainerID[:12], info.CgroupID, !info.ProcessAlreadyRunning)
+
+	// Resolve the owning workload off the NRI hook goroutine (see doc comment). A
+	// failure is non-fatal: target.resolved stays false and the stop path retries
+	// with a best-effort live lookup (which only then races GC).
+	if r.controllerURL != "" && r.resolver != nil && info.Pod.Namespace != "" {
+		target.resolveDone = make(chan struct{})
+		go r.resolveWorkloadAsync(target, agg, info.Pod)
+	}
+}
+
+// resolveWorkloadAsync resolves the owning workload for a just-started container
+// and records it on the container's postTarget. It writes through the shared
+// target pointer (not the cgroup map), so the result reaches the flush path even
+// if the container has already stopped — flush waits on target.resolveDone for
+// exactly this handoff.
+func (r *cgroupRouter) resolveWorkloadAsync(target *postTarget, agg *manifest.Aggregator, pod container.PodMeta) {
+	defer close(target.resolveDone)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	dep, imageRef, err := r.resolver.ResolveWorkload(ctx, pod.Namespace, pod.Name)
+	cancel()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sensor: start-time workload resolve for %s/%s failed (%v) — will retry at stop\n",
+			pod.Namespace, pod.Name, err)
+		return
+	}
+
+	r.mu.Lock()
+	target.deployment = dep
+	target.imageRef = imageRef
+	target.resolved = true
+	r.mu.Unlock()
+	if imageRef != "" {
+		agg.SetImageRef(imageRef)
+	}
 }
 
 // onContainerStop is called by the NRI plugin when a container stops.
@@ -373,8 +405,22 @@ func (r *cgroupRouter) flush(agg *manifest.Aggregator, target *postTarget) {
 		return
 	}
 
-	dep, imageRef := target.deployment, target.imageRef
-	if !target.resolved {
+	// If a start-time resolve is still in flight, wait for it (bounded: its
+	// context times out at 10s) rather than racing ahead to the live fallback —
+	// the fallback is the path that loses against pod/ReplicaSet GC (OSS-5).
+	if target.resolveDone != nil {
+		select {
+		case <-target.resolveDone:
+		case <-time.After(15 * time.Second):
+			fmt.Fprintf(os.Stderr, "sensor: start-time resolve for %s/%s did not settle — falling back to live lookup\n",
+				target.pod.Namespace, target.pod.Name)
+		}
+	}
+
+	r.mu.RLock()
+	dep, imageRef, resolved := target.deployment, target.imageRef, target.resolved
+	r.mu.RUnlock()
+	if !resolved {
 		if r.resolver == nil {
 			return
 		}
