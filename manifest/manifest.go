@@ -19,14 +19,18 @@ import "time"
 //   - v2 (integer 2): adds the Coverage block (R2 process-start marker,
 //     attach/first-exec timestamps) and the ContainerStarts records (R3). The
 //     schema_version field changed type from string to integer at this bump.
-//   - v3 (current, integer 3): adds the EventLoss block (top-level event_loss) —
+//   - v3 (integer 3): adds the EventLoss block (top-level event_loss) —
 //     per-window event-loss counters so a consumer can refuse "not observed ⇒
 //     not loaded" claims from a lossy observation window. No v2 field semantics
 //     changed.
+//   - v4 (current, integer 4): adds the "s" access mode (stat-family existence
+//     check, emitted only when the sensor runs with --trace-stat) and the
+//     "inferred-runtime" observation source (build-time runtime companion
+//     rules). Both are additive enum values; no v3 field semantics changed.
 //
 // Consumers MUST treat any profile lacking an integer schema_version (i.e. the
 // legacy string "1" form, or no field at all) as a legacy v1 profile.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // ObservationSource describes how a file was included in the manifest.
 // Every FileEntry carries exactly one source. The source is the foundation of
@@ -83,6 +87,7 @@ const (
 	AccessExecute AccessMode = "x" // via execve kprobe
 	AccessLink    AccessMode = "l" // hardlink / rename observed
 	AccessMmap    AccessMode = "m" // mmap with PROT_EXEC
+	AccessStat    AccessMode = "s" // stat-family existence check (--trace-stat, schema v4)
 )
 
 // FileEntry is a single file in the manifest. The map key in Manifest.Files

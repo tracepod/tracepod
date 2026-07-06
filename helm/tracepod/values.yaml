@@ -1,4 +1,8 @@
 sensor:
+  # traceStat additionally records stat-family existence checks (schema v4
+  # access mode "s"). Higher event volume; event_loss counters surface any
+  # ring-buffer pressure.
+  traceStat: false
   image:
     repository: ghcr.io/tracepod/tracepod-sensor
     tag: latest
