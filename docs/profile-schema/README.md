@@ -12,7 +12,15 @@ This directory holds the formal JSON Schema for each published version:
 |------|---------|--------|------------------------|
 | [`v1.schema.json`](v1.schema.json) | 1 | legacy (retained) | string `"1"` |
 | [`v2.schema.json`](v2.schema.json) | 2 | legacy (retained) | integer `2` |
-| [`v3.schema.json`](v3.schema.json) | 3 | **current** (revised in place 2026-06-11, see note) | integer `3` |
+| [`v3.schema.json`](v3.schema.json) | 3 | legacy (retained; revised in place 2026-06-11, see note) | integer `3` |
+| [`v4.schema.json`](v4.schema.json) | 4 | **current** | integer `4` |
+
+> **v4 (2026-07-06).** Adds the `s` access mode — stat-family existence checks
+> captured by the `vfs_fstatat` kprobe, emitted only when the sensor runs with
+> `--trace-stat` — and the `inferred-runtime` observation source (build-time
+> runtime companion rules, e.g. CPython pyc → sibling `.py`). Both are additive
+> enum values; no v3 field semantics changed. A v3 document is a valid v4
+> document apart from the `schema_version` const.
 
 ## Versioning policy
 
@@ -61,13 +69,13 @@ field is absent entirely. Consumers should:
 - Not attempt to upgrade v1 documents in place; re-profile under the current
   sensor to obtain a v2 document.
 
-## v3 field reference
+## Current (v4) field reference
 
 Top-level object:
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `schema_version` | integer | Always `3`. |
+| `schema_version` | integer | Always `4`. |
 | `container_id` | string | Runtime container ID profiled. |
 | `image_ref` | string | OCI image ref; omitted when unresolved (standalone mode). |
 | `profile_start` | RFC 3339 | Aggregator creation time (first witnessed start). |
@@ -282,21 +290,19 @@ Keyed by absolute path. Each entry:
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `source` | enum | `direct` \| `inferred-elf` \| `directory-inclusion` \| `manual` \| `ensure-dir` \| `ensure-file`. Load-bearing for confidence scoring; never flattened. |
-| `access_modes` | array | Subset of `r w x l m` (read/write/execute/link/mmap-PROT_EXEC). |
+| `source` | enum | `direct` \| `inferred-elf` \| `inferred-runtime` (v4) \| `directory-inclusion` \| `manual` \| `ensure-dir` \| `ensure-file`. Load-bearing for confidence scoring; never flattened. |
+| `access_modes` | array | Subset of `r w x l m s` (read/write/execute/link/mmap-PROT_EXEC/stat-existence-check; `s` requires `--trace-stat`). |
 | `first_seen` / `last_seen` | RFC 3339 | See timestamp semantics. |
 | `count` | integer ≥0 | Observed opens; `0` for `inferred-elf` / `directory-inclusion`. |
 | `inferred_from` | string | `source=inferred-elf`: the ELF that required this `.so`. |
 | `included_because` | string | `source=directory-inclusion`/`manual`: inclusion reason. |
 
-> **Build-time sources beyond the published enum.** The hardener's runtime
-> companion resolver adds entries with `source: "inferred-runtime"` (e.g. a
-> CPython `__pycache__` pyc implies its sibling `.py`, which the interpreter
-> stats but never opens; `inferred_from` names the triggering pyc). The sensor
-> never emits this source, so the published **profile** schema above is
-> unchanged — it appears only in build-time manifests produced by the
-> hardener. It joins the published enum at the next schema version (v4);
-> until then, validators of hardener output should accept it explicitly.
+> **`inferred-runtime` and `s`.** The hardener's runtime companion resolver
+> adds entries with `source: "inferred-runtime"` (e.g. a CPython `__pycache__`
+> pyc implies its sibling `.py`; `inferred_from` names the triggering pyc) —
+> the sensor never emits this source. The `s` access mode records stat-family
+> existence checks and appears only when the sensor runs with `--trace-stat`.
+> Both entered the published enum at v4.
 
 ### Timestamp semantics (R4)
 

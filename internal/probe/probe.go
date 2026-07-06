@@ -34,6 +34,12 @@ type Options struct {
 	// bpf_ringbuf_reserve failures under a high-churn workload (schema v3,
 	// docs/profile-schema/README.md); it has no production use.
 	RingbufBytes uint32
+
+	// TraceStat additionally attaches the vfs_fstatat kprobe, recording
+	// stat-family existence checks (access mode "s", schema v4). Off by
+	// default: stat volume is far higher than open volume. The schema-v3
+	// event-loss counters surface any resulting ring-buffer pressure.
+	TraceStat bool
 }
 
 // Open loads the BPF program with default options. See OpenWith.
@@ -70,17 +76,25 @@ func OpenWith(opts Options) (*Probe, error) {
 		objs.Close()
 	}
 
-	// Three kprobes: openat (raw path capture + userspace CWD resolution for
-	// relative paths), execve (absolute binary path), mmap PROT_EXEC (basename
-	// correlated against openat-recorded full paths).
-	for _, a := range []struct {
+	// Three kprobes always: openat (raw path capture + userspace CWD resolution
+	// for relative paths), execve (absolute binary path), mmap PROT_EXEC
+	// (basename correlated against openat-recorded full paths). A fourth —
+	// vfs_fstatat, existence checks — attaches only when opts.TraceStat is set.
+	attachments := []struct {
 		symbol string
 		prog   *ebpf.Program
 	}{
 		{"do_sys_openat2", objs.KprobeOpenat},
 		{"security_bprm_check", objs.KprobeExecve},
 		{"security_mmap_file", objs.KprobeMmap},
-	} {
+	}
+	if opts.TraceStat {
+		attachments = append(attachments, struct {
+			symbol string
+			prog   *ebpf.Program
+		}{"vfs_fstatat", objs.KprobeStat})
+	}
+	for _, a := range attachments {
 		lnk, err := link.Kprobe(a.symbol, a.prog, nil)
 		if err != nil {
 			cleanup()
