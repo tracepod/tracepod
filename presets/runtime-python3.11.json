@@ -1,0 +1,14 @@
+{
+  "name": "runtime-python3.11",
+  "description": "CPython 3.11 startup essentials the profiler cannot observe (encodings package, lib-dynload C extensions).",
+  "paths": [
+    {
+      "path": "/usr/local/lib/python3.11/encodings",
+      "type": "directory"
+    },
+    {
+      "path": "/usr/local/lib/python3.11/lib-dynload",
+      "type": "directory"
+    }
+  ]
+}

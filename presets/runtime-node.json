@@ -1,0 +1,10 @@
+{
+  "name": "runtime-node",
+  "description": "Node's os.tmpdir() (/tmp) must exist for temp files and native-addon extraction; /tmp observations are denylisted.",
+  "paths": [
+    {
+      "path": "/tmp",
+      "type": "directory"
+    }
+  ]
+}

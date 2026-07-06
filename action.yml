@@ -1,0 +1,97 @@
+# Tracepod GitHub Action — harden a container image in CI.
+#
+# Profile your app during CI e2e tests (or bring a recorded profile), then
+# harden, smoke-test, and SBOM the image as part of the release pipeline:
+#
+#   - uses: tracepod/tracepod@v0
+#     with:
+#       manifest: profiles/app/files.json
+#       source: ghcr.io/acme/app:${{ github.sha }}
+#       push: ghcr.io/acme/app:${{ github.sha }}-hardened
+#
+# Outputs the OCI layout path and SBOM paths for follow-up steps
+# (cosign attach, release upload, registry scan).
+name: 'Tracepod Harden'
+description: 'Build a minimized, runtime-profiled hardened image with SBOMs from a Tracepod profile'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  manifest:
+    description: 'Path to the Tracepod profile JSON (sensor output, files.json)'
+    required: true
+  source:
+    description: 'Source image reference the profile was recorded against'
+    required: true
+  output:
+    description: 'Directory for the hardened OCI layout'
+    required: false
+    default: 'hardened-oci'
+  push:
+    description: 'Registry reference to push the hardened image to (empty = build only)'
+    required: false
+    default: ''
+  platform:
+    description: 'Target platform'
+    required: false
+    default: 'linux/amd64'
+  include:
+    description: 'Newline-separated extra include paths'
+    required: false
+    default: ''
+  smoke-test:
+    description: 'Run the built image in the runner Docker daemon and fail if it cannot boot'
+    required: false
+    default: 'true'
+  version:
+    description: 'Tracepod release version to install'
+    required: false
+    default: 'latest'
+
+outputs:
+  oci-path:
+    description: 'Path of the hardened OCI layout'
+    value: ${{ inputs.output }}
+  sbom-cyclonedx:
+    description: 'Path of the CycloneDX SBOM'
+    value: ${{ inputs.output }}/sbom.cyclonedx.json
+  sbom-spdx:
+    description: 'Path of the SPDX SBOM'
+    value: ${{ inputs.output }}/sbom.spdx.json
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install tracepod harden
+      shell: bash
+      run: |
+        set -euo pipefail
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ]; then
+          VERSION=$(curl -fsSL https://api.github.com/repos/tracepod/tracepod/releases/latest | jq -r .tag_name)
+        fi
+        ARCH=$(uname -m); case "$ARCH" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; esac
+        curl -fsSL "https://github.com/tracepod/tracepod/releases/download/${VERSION}/tracepod_${VERSION#v}_linux_${ARCH}.tar.gz" \
+          | tar -xz harden
+        sudo install harden /usr/local/bin/harden
+        harden version || true
+
+    - name: Install syft (SBOM)
+      shell: bash
+      run: |
+        command -v syft >/dev/null || \
+          curl -fsSL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin
+
+    - name: Harden
+      shell: bash
+      run: |
+        set -euo pipefail
+        ARGS=(--manifest "${{ inputs.manifest }}" --source "${{ inputs.source }}" \
+              --output "${{ inputs.output }}" --platform "${{ inputs.platform }}" --sbom)
+        if [ -n "${{ inputs.push }}" ]; then ARGS+=(--push "${{ inputs.push }}"); fi
+        if [ "${{ inputs.smoke-test }}" = "true" ]; then ARGS+=(--smoke-test); fi
+        while IFS= read -r p; do
+          [ -n "$p" ] && ARGS+=(--include "$p")
+        done <<< "${{ inputs.include }}"
+        harden build "${ARGS[@]}"

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/tracepod/tracepod/hardener"
 	"github.com/tracepod/tracepod/manifest"
@@ -39,6 +40,8 @@ func runBuild(args []string) int {
 		verbose            = fs.Bool("verbose", false, "Print full confidence penalty breakdown and ELF audit warnings")
 		sbom               = fs.Bool("sbom", false, "Generate CycloneDX and SPDX SBOMs via syft into the --output directory")
 		sbomSignKey        = fs.String("sbom-sign-key", "", "Path to cosign private key for signing SBOMs (requires --sbom)")
+		smokeTest          = fs.Bool("smoke-test", false, "After building, load the image into the local Docker daemon and run it briefly — fails the build if the minimized image cannot boot")
+		smokeWindow        = fs.Duration("smoke-window", 5*time.Second, "How long the smoke-test container must survive (requires --smoke-test)")
 		includePaths       multiFlag
 		mkdirs             multiFlag
 		touches            multiFlag
@@ -186,6 +189,16 @@ func runBuild(args []string) int {
 			fmt.Printf("SBOM:        %s/sbom.cyclonedx.json\n", *outputDir)
 			fmt.Printf("             %s/sbom.spdx.json\n", *outputDir)
 		}
+	}
+
+	if *smokeTest {
+		tag := "tracepod-smoke:latest"
+		fmt.Printf("Smoke test:  loading into local Docker and running for %s...\n", *smokeWindow)
+		if err := runSmokeTest(ctx, *outputDir, tag, *smokeWindow); err != nil {
+			fmt.Fprintf(os.Stderr, "error: smoke test failed: %v\n", err)
+			return 1
+		}
+		fmt.Printf("Smoke test:  PASS — the minimized image boots\n")
 	}
 
 	if len(result.Unresolved) > 0 {
