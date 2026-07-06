@@ -128,7 +128,6 @@
             "enum": [
               "direct",
               "inferred-elf",
-              "inferred-runtime",
               "directory-inclusion",
               "manual",
               "ensure-dir",
@@ -156,7 +155,7 @@
             "minimum": 0
           },
           "inferred_from": {
-            "description": "source=inferred-elf: the ELF binary that required this shared object. source=inferred-runtime: the observed file that implied this one (e.g. the __pycache__ pyc whose sibling .py source was added).",
+            "description": "source=inferred-elf: the ELF binary that required this shared object.",
             "type": "string"
           },
           "included_because": {
