@@ -38,6 +38,10 @@ var publishedSchemaHashes = map[string]string{
 	// hash of the revised v3; the pre-revision hash was
 	// d02f59719ff70799a793b08b9c457db3cbd26de8e0371f3ecec4bb77b00e576c.
 	"v3.schema.json": "d1aa1d007375aca1454be664c3a390ec1f0ed3a1ddc6801716b4cce1efa08a75",
+	// v4 (2026-07-06): adds the "s" access mode (stat-family existence checks,
+	// --trace-stat) and the "inferred-runtime" observation source. Additive
+	// enum widening only; no v3 field semantics changed.
+	"v4.schema.json": "bdff234578a44f982a94829b450f988ee2d9701c9193ab33e9bee485fe59af93",
 }
 
 const schemaDir = "../docs/profile-schema"

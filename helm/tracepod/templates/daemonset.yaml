@@ -35,6 +35,9 @@ spec:
           {{- if .Values.sensor.ringbufBytes }}
           - --ringbuf-bytes={{ .Values.sensor.ringbufBytes }}
           {{- end }}
+          {{- if .Values.sensor.traceStat }}
+          - --trace-stat
+          {{- end }}
         env:
         - name: NODE_NAME
           valueFrom:

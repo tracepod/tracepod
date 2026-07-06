@@ -74,6 +74,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	verbose := flag.Bool("verbose", false, "print every file-open event to stderr (noisy; for debugging)")
 	ringbufBytes := flag.Uint("ringbuf-bytes", 0, "override events ring-buffer size in bytes (0=default 256KB; power of two, page-multiple). Test-only: a tiny value forces event loss for the induced-loss schema-v3 fixture")
+	traceStat := flag.Bool("trace-stat", false, "additionally trace stat-family existence checks (vfs_fstatat kprobe; access mode \"s\", schema v4). Higher event volume — watch event_loss counters")
 	flag.Parse()
 
 	if *showVersion {
@@ -81,7 +82,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	p, err := probe.OpenWith(probe.Options{RingbufBytes: uint32(*ringbufBytes)})
+	p, err := probe.OpenWith(probe.Options{RingbufBytes: uint32(*ringbufBytes), TraceStat: *traceStat})
 	if err != nil {
 		log.Fatalf("open probe: %v", err)
 	}
@@ -508,6 +509,8 @@ func (r *cgroupRouter) handle(e ringbuf.Event) {
 		r.handleExecve(e)
 	case ringbuf.EventTypeMmap:
 		r.handleMmap(e)
+	case ringbuf.EventTypeStat:
+		r.handleStat(e)
 	}
 }
 
@@ -579,6 +582,43 @@ func (r *cgroupRouter) handleExecve(e ringbuf.Event) {
 		if r.verbose {
 			fmt.Fprintf(os.Stderr, "pid=%d cgroup=%d comm=%s exec-interp=%s\n", e.Pid, e.CgroupID, e.Process(), interp)
 		}
+	}
+}
+
+// handleStat processes a stat-family existence check (--trace-stat, schema
+// v4). Interpreters prove files are required without opening them — CPython
+// stats a module's .py source and loads only the cached pyc — so existence
+// checks are load-bearing observations. Relative paths resolve via the same
+// CWD machinery as openat.
+func (r *cgroupRouter) handleStat(e ringbuf.Event) {
+	raw := e.Path()
+	if raw == "" {
+		return
+	}
+
+	var path string
+	if raw[0] == '/' {
+		path = r.cleanPath(raw)
+	} else {
+		r.mu.RLock()
+		cgFSPath := r.cgroupFSPath[e.CgroupID]
+		r.mu.RUnlock()
+		if cwd := cwdForEvent(e.Pid, cgFSPath); cwd != "" {
+			path = r.cleanPath(filepath.Join(cwd, raw))
+		}
+	}
+	if path == "" {
+		return
+	}
+
+	agg := r.aggFor(e.CgroupID)
+	if agg == nil {
+		return
+	}
+
+	agg.RecordFile(path, manifest.SourceDirect, []manifest.AccessMode{manifest.AccessStat}, time.Now())
+	if r.verbose {
+		fmt.Fprintf(os.Stderr, "pid=%d cgroup=%d comm=%s stat=%s\n", e.Pid, e.CgroupID, e.Process(), path)
 	}
 }
 

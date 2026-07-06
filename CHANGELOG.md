@@ -8,6 +8,21 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Added
 
+- **Stat tracing + profile schema v4** — optional `--trace-stat` sensor flag
+  attaches a `vfs_fstatat` kprobe recording stat-family existence checks as the
+  new `s` access mode. Interpreters prove files are required without opening
+  them (CPython stats a module's `.py` source and loads only the cached pyc);
+  with `--trace-stat` those files enter the profile directly. Schema v4 also
+  admits the `inferred-runtime` observation source (the hardener's runtime
+  companion rules). Additive enum widening only; no v3 field semantics changed.
+- **Runtime companion resolver** — the hardener infers CPython `pyc → py`
+  companions and normalizes transient atomic-write pyc names
+  (`source=inferred-runtime`, full `inferred_from` audit trail), fixing
+  unbootable minimized Python images built from open-only profiles.
+- **Sensor NRI Synchronize fix** — workload resolution moved off the NRI hook
+  goroutine (containerd's ~2s Synchronize deadline dropped the plugin and the
+  sensor crashlooped silently on busy nodes); the stop path waits on the
+  in-flight start-time resolve, preserving the OSS-5 no-live-lookup guarantee.
 - **`tracepod cve-report`** (OSS-2) — a new free-tier CLI subcommand that renders
   the controller's Lite-served **reachability report**: for every CVE a scanner
   finds, whether the affected package was actually *loaded* during the profiling

@@ -16,6 +16,7 @@ const (
 	EventTypeOpenat uint32 = 1
 	EventTypeExecve uint32 = 2
 	EventTypeMmap   uint32 = 3
+	EventTypeStat   uint32 = 4 // vfs_fstatat existence check (--trace-stat)
 )
 
 // Event mirrors the BPF event struct in openat.c. Field sizes and order must
