@@ -1,0 +1,10 @@
+{
+  "name": "runtime-ruby",
+  "description": "Ruby's Tempfile/Dir.tmpdir (/tmp) must exist; /tmp observations are denylisted.",
+  "paths": [
+    {
+      "path": "/tmp",
+      "type": "directory"
+    }
+  ]
+}
