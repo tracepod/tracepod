@@ -38,6 +38,9 @@ spec:
           {{- if .Values.sensor.traceStat }}
           - --trace-stat
           {{- end }}
+          {{- if .Values.sensor.postUnownedPodsNamespace }}
+          - --post-unowned-pods-namespace={{ .Values.sensor.postUnownedPodsNamespace }}
+          {{- end }}
         env:
         - name: NODE_NAME
           valueFrom:
