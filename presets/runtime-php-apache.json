@@ -1,0 +1,22 @@
+{
+  "name": "runtime-php-apache",
+  "description": "php:*-apache images need Apache's runtime directories (pid under /var/run/apache2, logs under /var/log/apache2) plus /tmp for PHP sessions and uploads.",
+  "paths": [
+    {
+      "path": "/var/run/apache2",
+      "type": "directory"
+    },
+    {
+      "path": "/var/log/apache2",
+      "type": "directory"
+    },
+    {
+      "path": "/var/lock",
+      "type": "directory"
+    },
+    {
+      "path": "/tmp",
+      "type": "directory"
+    }
+  ]
+}

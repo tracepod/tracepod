@@ -1,0 +1,14 @@
+{
+  "name": "runtime-nginx",
+  "description": "nginx creates its log and cache trees at startup and aborts when the parent directories are missing; both are runtime-written and never profiled.",
+  "paths": [
+    {
+      "path": "/var/log/nginx",
+      "type": "directory"
+    },
+    {
+      "path": "/var/cache/nginx",
+      "type": "directory"
+    }
+  ]
+}

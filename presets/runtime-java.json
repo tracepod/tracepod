@@ -1,0 +1,10 @@
+{
+  "name": "runtime-java",
+  "description": "The JVM requires java.io.tmpdir (/tmp) to exist for hsperfdata and temporary files; /tmp observations are denylisted.",
+  "paths": [
+    {
+      "path": "/tmp",
+      "type": "directory"
+    }
+  ]
+}
