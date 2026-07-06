@@ -475,6 +475,7 @@ too). Most importantly: **check `event_loss.total` before trusting absence.**
 | Static content not served during profiling | None | Low (404s, not crash) |
 | `dlopen()` on uninvoked code paths | Low | Low |
 | Event loss under buffer pressure | None | Low (fail-safe) — but taints "not loaded" claims; now counted in `event_loss` |
+| Stat-only existence checks (interpreter source files) | None | Was high for Python (startup crash); closed by the runtime companion resolver — residual risk for other stat-probe patterns |
 
 ### The underlying pattern
 
@@ -514,6 +515,42 @@ which is exactly the error a downstream gate must not silently trust.
 Periodic incremental flush (durable spool) so the unflushed delta is bounded by the
 flush interval rather than by the whole container lifetime. Tracked separately; the
 stop-path and SIGTERM-path correctness (OSS-5) is the prerequisite and is now in place.
+
+## 6. Existence checks (stat) are invisible — the interpreter source-file blind spot
+
+### What happens
+
+The sensor traces `openat`, `exec`, and `mmap` — it cannot see files a process merely
+`stat(2)`s. Some runtimes prove a file is required without ever opening it. CPython is
+the acute case: importing a module with a warm bytecode cache **stats** `<pkg>/<mod>.py`
+and **opens** only `<pkg>/__pycache__/<mod>.cpython-NN.pyc` — yet at runtime it refuses
+that cached pyc when the sibling source is missing. A minimized image containing exactly
+the observed files therefore cannot even `import encodings` and dies in interpreter
+startup (`init_fs_encoding: no codec search functions registered`).
+
+### Risk level
+
+**Was high for Python workloads (guaranteed startup crash); now closed for the known
+Python case.** The general stat-blindness remains for other existence-probe patterns
+(Node module-resolution stat storms, config-file probing chains).
+
+### Current mitigation
+
+- The hardener's **runtime companion resolver** (`hardener/runtime.go`) runs after ELF
+  resolution and deterministically adds the implied files: every `__pycache__` pyc adds
+  its sibling `.py` when present in the source image (`source=inferred-runtime`, with
+  `inferred_from` audit trail). It also normalizes transient atomic-write pyc names
+  (`<mod>.pyc.<digits>`) to their final path.
+- Curated per-runtime baseline presets (dashboard: `runtime-python3.11/12/13`) cover
+  known-but-not-derivable gaps such as `encodings/` and `lib-dynload/`.
+- Sandbox validation remains the safety net: a hardened image that cannot boot fails
+  validation before any push.
+
+### Long-term fix direction
+
+Optional stat-family tracing (`newfstatat`/`statx` kprobes) behind a sensor flag, with
+the schema-v3 event-loss counters guarding ring-buffer pressure. High event volume and
+verifier risk — needs careful review before default-on.
 
 ---
 
