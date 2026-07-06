@@ -48,6 +48,16 @@ const (
 	// Medium trust — conservative, may over-include.
 	SourceDirectoryInclusion ObservationSource = "directory-inclusion"
 
+	// SourceInferredRuntime means the path was added by a language-runtime
+	// companion rule rather than observed directly. Interpreters can prove a
+	// file is required without ever open(2)-ing it — CPython stats a module's
+	// .py source and then loads only the cached __pycache__/*.pyc, yet refuses
+	// that pyc at runtime when the sibling source is missing. Such files never
+	// appear as openat events, so the hardener infers them from the files that
+	// were observed. High trust — each rule is deterministic and only adds
+	// paths that exist in the source image.
+	SourceInferredRuntime ObservationSource = "inferred-runtime"
+
 	// SourceManual means the operator explicitly added this path via config or CLI.
 	SourceManual ObservationSource = "manual"
 
@@ -85,7 +95,7 @@ type FileEntry struct {
 	Count       uint64            `json:"count"` // 0 for inferred-elf and directory-inclusion entries
 
 	// Audit trail — only set for non-direct sources.
-	InferredFrom    string `json:"inferred_from,omitempty"`    // source=inferred-elf: the ELF binary that required this .so
+	InferredFrom    string `json:"inferred_from,omitempty"`    // source=inferred-elf: the ELF binary that required this .so; source=inferred-runtime: the observed file that implied this one
 	IncludedBecause string `json:"included_because,omitempty"` // source=directory-inclusion: the direct hit that triggered expansion
 }
 
