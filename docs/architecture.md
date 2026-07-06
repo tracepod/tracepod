@@ -90,6 +90,7 @@ Each file carries an `observation_source` that records how it was discovered:
 |--------|---------|
 | `direct` | Observed by eBPF kprobe |
 | `inferred-elf` | ELF shared library dependency resolved from a `direct` binary |
+| `inferred-runtime` | Language-runtime companion rule (e.g. a CPython `__pycache__` pyc implies its sibling `.py` source, which the interpreter stats but never opens) |
 | `directory-inclusion` | Safe-mode directory expansion |
 | `manual` | Added explicitly via `--include` flag |
 

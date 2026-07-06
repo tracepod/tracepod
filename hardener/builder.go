@@ -219,6 +219,11 @@ func BuildImage(
 		return BuildResult{}, fmt.Errorf("resolve ELF deps: %w", err)
 	}
 
+	// Apply language-runtime companion rules (e.g. CPython __pycache__ pyc →
+	// sibling .py source). Runs after ELF resolution so companions of inferred
+	// libraries are also covered; adds only files present in the staging tree.
+	ResolveRuntimeCompanions(stagingDir, m)
+
 	// Inject scratch-compatibility essentials: /etc/passwd, TLS certs,
 	// dynamic linker, etc. These are pulled from the extracted staging tree.
 	arch := archFromPlatform(opts.Platform)
