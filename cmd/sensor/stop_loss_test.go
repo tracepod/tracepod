@@ -85,6 +85,10 @@ func TestStopLoss_StartResolveSurvivesGC(t *testing.T) {
 		t.Fatal("aggregator missing after start")
 	}
 
+	// Let the start-time resolve settle before GC begins (the async resolve is
+	// covered separately in sync_deadline_test.go).
+	waitStartResolve(t, r, 42)
+
 	// The pod and its ReplicaSet are now being garbage-collected: a LIVE resolve at
 	// stop would 404 (this is exactly the pre-fix loss boundary).
 	res.setFailing(true)
@@ -125,6 +129,7 @@ func TestStopLoss_FlushAllOnShutdown(t *testing.T) {
 		agg.RecordFile("/usr/bin/api", manifest.SourceDirect, []manifest.AccessMode{manifest.AccessExecute}, time.Now())
 	}
 
+	waitStartResolve(t, r, 7)
 	res.setFailing(true) // GC racing the shutdown — cache must still carry it.
 	r.flushAll()
 
@@ -173,6 +178,7 @@ func TestStopLoss_NoTrackedOwnerSkips(t *testing.T) {
 		ContainerID: "ctr-d00000000000000000000000000000000000000000000000000000000000", CgroupID: 3,
 		Pod: container.PodMeta{Namespace: "ns4", Name: "daemon-1"},
 	})
+	waitStartResolve(t, r, 3)
 	res.setFailing(true) // must NOT be consulted at stop; decision was cached.
 	r.onContainerStop("ctr-d00000000000000000000000000000000000000000000000000000000000", 3, container.PodMeta{Namespace: "ns4", Name: "daemon-1"})
 
