@@ -57,6 +57,7 @@ type openatProgramSpecs struct {
 	KprobeExecve *ebpf.ProgramSpec `ebpf:"kprobe_execve"`
 	KprobeMmap   *ebpf.ProgramSpec `ebpf:"kprobe_mmap"`
 	KprobeOpenat *ebpf.ProgramSpec `ebpf:"kprobe_openat"`
+	KprobeStat   *ebpf.ProgramSpec `ebpf:"kprobe_stat"`
 }
 
 // openatMapSpecs contains maps before they are loaded into the kernel.
@@ -120,6 +121,7 @@ type openatPrograms struct {
 	KprobeExecve *ebpf.Program `ebpf:"kprobe_execve"`
 	KprobeMmap   *ebpf.Program `ebpf:"kprobe_mmap"`
 	KprobeOpenat *ebpf.Program `ebpf:"kprobe_openat"`
+	KprobeStat   *ebpf.Program `ebpf:"kprobe_stat"`
 }
 
 func (p *openatPrograms) Close() error {
@@ -127,6 +129,7 @@ func (p *openatPrograms) Close() error {
 		p.KprobeExecve,
 		p.KprobeMmap,
 		p.KprobeOpenat,
+		p.KprobeStat,
 	)
 }
 

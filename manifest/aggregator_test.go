@@ -159,7 +159,7 @@ func TestAggregator_WriteJSON_validJSON(t *testing.T) {
 
 	s := buf.String()
 	for _, want := range []string{
-		`"schema_version": 3`,
+		`"schema_version": 4`,
 		`"container_id": "ctr1"`,
 		`"image_ref": "redis:7"`,
 		`"/usr/bin/redis-server"`,

@@ -191,10 +191,10 @@ fi
 # by_stage), and nothing listed not_instrumented. A nonzero total here would be a
 # real regression in drain throughput, not a flaky test.
 if command -v jq >/dev/null 2>&1; then
-  info "Phase 5b: asserting schema v3 shape on ${MANIFEST}"
+  info "Phase 5b: asserting schema v4 shape on ${MANIFEST}"
   VER=$(jq -r '.schema_version' "$MANIFEST")
-  if [ "$VER" != "3" ]; then
-    fail "schema_version=${VER}, want integer 3"; exit 1
+  if [ "$VER" != "4" ]; then
+    fail "schema_version=${VER}, want integer 4"; exit 1
   fi
   PSO=$(jq -r '.coverage.process_start_observed' "$MANIFEST")
   case "$PSO" in

@@ -16,6 +16,7 @@
 #define EVENT_OPENAT  1
 #define EVENT_EXECVE  2
 #define EVENT_MMAP    3
+#define EVENT_STAT    4
 
 struct event {
 	__u32 type;              /* offset   0 — EVENT_OPENAT / EXECVE / MMAP */
@@ -134,6 +135,54 @@ int BPF_KPROBE(kprobe_openat, int dfd, const char *filename,
 		 * capacity/transport drop: it has a known load-independent idle floor, so
 		 * it is counted as a TOLERATED loss (event_loss.tolerated.path_read_failed)
 		 * and never folded into total. See the STAT_* note above. */
+		stat_inc(STAT_PATH_READ_FAILED);
+		bpf_ringbuf_discard(e, 0);
+		return 0;
+	}
+	e->interp[0] = 0;
+
+	bpf_ringbuf_submit(e, 0);
+	return 0;
+}
+
+/* kprobe/vfs_fstatat — the kernel's unified fstatat handler, reached by the
+ * stat/lstat/fstatat/newfstatat family (glibc and musl stat() both land here
+ * on modern kernels). The filename argument is the raw USER-space pointer —
+ * vfs_fstatat performs getname() internally — so the capture mirrors the
+ * openat probe exactly, including the tolerated path-read-fault accounting.
+ *
+ * Why trace stats at all: interpreters prove files are required without ever
+ * opening them. CPython stats a module's .py source and then loads only the
+ * cached pyc; an image built from open observations alone cannot boot. The
+ * probe is attached only when the sensor runs with --trace-stat (see
+ * probe.Options.TraceStat) — stat volume is much higher than open volume, and
+ * the schema-v3 event-loss counters make any resulting ring-buffer pressure
+ * visible rather than silent.
+ *
+ * statx(2) does NOT pass through vfs_fstatat on all kernel versions; it is a
+ * documented follow-up (KNOWN-LIMITATIONS §6). */
+SEC("kprobe/vfs_fstatat")
+int BPF_KPROBE(kprobe_stat, int dfd, const char *filename)
+{
+	__u64 cgroup_id = bpf_get_current_cgroup_id();
+	__u8 *allowed = bpf_map_lookup_elem(&allowed_cgroups, &cgroup_id);
+	if (!allowed)
+		return 0;
+
+	struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+	if (!e) {
+		stat_inc(STAT_RESERVE_FAILED);
+		return 0;
+	}
+
+	e->type = EVENT_STAT;
+	e->pid = bpf_get_current_pid_tgid() >> 32;
+	e->cgroup_id = cgroup_id;
+	e->flags_or_prot = 0;
+	bpf_get_current_comm(&e->comm, sizeof(e->comm));
+
+	long n = bpf_probe_read_user_str(e->filename, sizeof(e->filename), filename);
+	if (n <= 0) {
 		stat_inc(STAT_PATH_READ_FAILED);
 		bpf_ringbuf_discard(e, 0);
 		return 0;
