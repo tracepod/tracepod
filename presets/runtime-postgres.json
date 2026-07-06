@@ -1,0 +1,14 @@
+{
+  "name": "runtime-postgres",
+  "description": "PostgreSQL needs its Unix-socket directory to exist; /run observations are denylisted so it never enters a profile. /tmp for sort spill files.",
+  "paths": [
+    {
+      "path": "/var/run/postgresql",
+      "type": "directory"
+    },
+    {
+      "path": "/tmp",
+      "type": "directory"
+    }
+  ]
+}

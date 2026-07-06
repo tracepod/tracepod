@@ -1,0 +1,10 @@
+{
+  "name": "runtime-redis",
+  "description": "Redis persists RDB/AOF into its working directory (/data in the official image); writes are runtime-only so the directory is absent from profiles.",
+  "paths": [
+    {
+      "path": "/data",
+      "type": "directory"
+    }
+  ]
+}
