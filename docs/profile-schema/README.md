@@ -289,6 +289,15 @@ Keyed by absolute path. Each entry:
 | `inferred_from` | string | `source=inferred-elf`: the ELF that required this `.so`. |
 | `included_because` | string | `source=directory-inclusion`/`manual`: inclusion reason. |
 
+> **Build-time sources beyond the published enum.** The hardener's runtime
+> companion resolver adds entries with `source: "inferred-runtime"` (e.g. a
+> CPython `__pycache__` pyc implies its sibling `.py`, which the interpreter
+> stats but never opens; `inferred_from` names the triggering pyc). The sensor
+> never emits this source, so the published **profile** schema above is
+> unchanged — it appears only in build-time manifests produced by the
+> hardener. It joins the published enum at the next schema version (v4);
+> until then, validators of hardener output should accept it explicitly.
+
 ### Timestamp semantics (R4)
 
 All timestamps (`profile_start`/`end`, `coverage.attach_time`/`first_exec_time`,
