@@ -39,6 +39,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -51,6 +52,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"github.com/tracepod/tracepod/internal/container"
 	"github.com/tracepod/tracepod/internal/probe"
 	"github.com/tracepod/tracepod/internal/ringbuf"
@@ -175,6 +177,11 @@ type cgroupRouter struct {
 	resolver      sensor.WorkloadResolver // nil in standalone mode
 	verbose       bool
 
+	// allower retires cgroups from the in-kernel allowlist. Held as an interface
+	// (satisfied by *probe.Probe) so the shutdown-deny ordering is unit-testable
+	// without a live BPF map.
+	allower container.CgroupAllower
+
 	// Event-loss instrumentation (schema v3).
 	probe           *probe.Probe      // BPF-side counters (reserve/read failures)
 	consumer        *ringbuf.Consumer // decode_failed counter; set in main before plugin.Start
@@ -182,6 +189,14 @@ type cgroupRouter struct {
 }
 
 func newRouter(p *probe.Probe, profileDir, controllerURL, nodeName string, resolver sensor.WorkloadResolver, verbose bool) *cgroupRouter {
+	// Assign the allower only when p is non-nil: storing a nil *probe.Probe in
+	// the interface would produce a non-nil interface holding a nil pointer, so
+	// a `!= nil` guard at the call site would pass and then dereference nil.
+	// Tests construct routers with no probe.
+	var allower container.CgroupAllower
+	if p != nil {
+		allower = p
+	}
 	return &cgroupRouter{
 		aggs:          make(map[uint64]*manifest.Aggregator),
 		ctrToCgroup:   make(map[string]uint64),
@@ -194,6 +209,7 @@ func newRouter(p *probe.Probe, profileDir, controllerURL, nodeName string, resol
 		resolver:      resolver,
 		verbose:       verbose,
 		probe:         p,
+		allower:       allower,
 	}
 }
 
@@ -486,6 +502,23 @@ func (r *cgroupRouter) flushAll() {
 			agg    *manifest.Aggregator
 			target *postTarget
 		}{agg, target})
+		// Deny BEFORE dropping the aggregator. A cgroup that is allowlisted with
+		// no live aggregator has its events counted as untracked_cgroup hard
+		// loss (see handle), and ReadLoss reports that counter process-wide —
+		// so leaving these allowed across the multi-second flush window would
+		// attribute fabricated hard loss to every profile flushed after the
+		// first. The events are unrecoverable either way once the aggregator is
+		// gone; denying keeps them from being counted as loss that never
+		// happened. Mirrors the ordering the NRI stop path already uses.
+		if r.allower != nil {
+			if err := r.allower.DenyCgroup(cg); err != nil {
+				// Already-absent keys are expected when a concurrent
+				// StopContainer denied this cgroup first; nothing to do.
+				if !errors.Is(err, ebpf.ErrKeyNotExist) {
+					fmt.Fprintf(os.Stderr, "sensor: flushAll DenyCgroup(%d): %v\n", cg, err)
+				}
+			}
+		}
 		delete(r.aggs, cg)
 		delete(r.cgroupFSPath, cg)
 		delete(r.targets, cg)
