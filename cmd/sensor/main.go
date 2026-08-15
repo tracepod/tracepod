@@ -304,6 +304,7 @@ func (r *cgroupRouter) bpfLossStats() (map[string]uint64, error) {
 func (r *cgroupRouter) onContainerStart(info container.StartInfo) {
 	agg := manifest.NewAggregator(info.ContainerID, "")
 	agg.RecordAttach(info.AttachTime, info.ProcessAlreadyRunning)
+	agg.RecordAdoptionMode(info.AdoptionMode)
 	// Capture the event-loss baseline at window start so the profile reports loss
 	// during THIS window (schema v3). The router is the process-wide LossReader.
 	agg.SetLossReader(r)
@@ -383,13 +384,20 @@ func (r *cgroupRouter) onContainerStop(containerID string, cgroupID uint64, pod 
 		target.pod = pod
 	}
 
-	r.flush(agg, target)
+	r.flush(agg, target, true)
 }
 
 // flush writes/POSTs a single container's profile. Shared by onContainerStop and
-// the SIGTERM flush path (flushAll).
-func (r *cgroupRouter) flush(agg *manifest.Aggregator, target *postTarget) {
+// the SIGTERM flush path (flushAll). terminal reports whether the
+// container has actually stopped: only then is the observation window closed and
+// the file set complete. A non-terminal flush (the SIGTERM path) still POSTs —
+// partial data beats none — but it is labelled so consumers that treat "files
+// not opened" as evidence can refuse it.
+func (r *cgroupRouter) flush(agg *manifest.Aggregator, target *postTarget, terminal bool) {
 	snap := agg.Snapshot()
+	if terminal {
+		snap = agg.SnapshotFinal()
+	}
 
 	// Standalone mode: write to profile directory.
 	if r.profileDir != "" {
@@ -531,7 +539,7 @@ func (r *cgroupRouter) flushAll() {
 	}
 	fmt.Fprintf(os.Stderr, "sensor: flushing %d in-flight profile(s) on shutdown\n", len(pending))
 	for _, p := range pending {
-		r.flush(p.agg, p.target)
+		r.flush(p.agg, p.target, false)
 	}
 }
 

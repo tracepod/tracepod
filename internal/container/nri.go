@@ -12,6 +12,8 @@ import (
 
 	"github.com/containerd/nri/pkg/api"
 	"github.com/containerd/nri/pkg/stub"
+
+	"github.com/tracepod/tracepod/manifest"
 )
 
 // StartInfo carries the per-container attach evidence the onStart callback needs
@@ -27,6 +29,12 @@ type StartInfo struct {
 	CgroupFSPath          string
 	AttachTime            time.Time
 	ProcessAlreadyRunning bool
+	// AdoptionMode is the provenance of this adoption (schema v5): which
+	// discovery hook produced it, and therefore whether the sensor could have
+	// attached before the workload executed. Unlike ProcessAlreadyRunning — which
+	// is inferred — this is recorded directly by the mechanism that adopted the
+	// container, so it cannot be wrong about its own identity.
+	AdoptionMode manifest.AdoptionMode
 	// Pod carries the Kubernetes pod metadata known at start time. It lets the
 	// caller resolve and cache the owning workload while the pod (and its
 	// ReplicaSet) reliably exist, so the stop path can POST without a live K8s
@@ -180,7 +188,7 @@ func (p *Plugin) StartContainer(
 	// to exec its entrypoint, so it wins the startup race (alreadyRunning=false).
 	// resolveCgroupPath turns the raw NRI cgroupsPath (which may be in systemd
 	// slice form) into an absolute /sys/fs/cgroup path.
-	p.adopt(ctr, resolveCgroupPath(cgPath), false, pod)
+	p.adopt(ctr, resolveCgroupPath(cgPath), false, pod, manifest.AdoptionNRIStart)
 	return nil
 }
 
@@ -203,7 +211,7 @@ func (p *Plugin) StartContainer(
 // the entrypoint has not exec'd, so a cgroup.procs probe would wrongly classify
 // every fresh start as a lost race. cgPath must already be resolved to an
 // absolute /sys/fs/cgroup path.
-func (p *Plugin) adopt(ctr *api.Container, cgPath string, alreadyRunning bool, pod PodMeta) {
+func (p *Plugin) adopt(ctr *api.Container, cgPath string, alreadyRunning bool, pod PodMeta, mode manifest.AdoptionMode) {
 	id, err := CgroupIDFromPath(cgPath)
 	if err != nil {
 		// Log and continue — don't block the container from starting.
@@ -231,6 +239,7 @@ func (p *Plugin) adopt(ctr *api.Container, cgPath string, alreadyRunning bool, p
 			CgroupFSPath:          cgPath,
 			AttachTime:            attachTime,
 			ProcessAlreadyRunning: alreadyRunning,
+			AdoptionMode:          mode,
 			Pod:                   pod,
 		})
 	}
@@ -283,7 +292,7 @@ func (p *Plugin) Synchronize(
 		p.mu.Unlock()
 
 		fmt.Fprintf(os.Stderr, "sensor: Synchronize adopting running id=%s\n", ctr.GetId())
-		p.adopt(ctr, resolveCgroupPath(cgPath), true, pm)
+		p.adopt(ctr, resolveCgroupPath(cgPath), true, pm, manifest.AdoptionNRISync)
 	}
 	return nil, nil
 }

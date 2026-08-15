@@ -191,11 +191,31 @@ fi
 # by_stage), and nothing listed not_instrumented. A nonzero total here would be a
 # real regression in drain throughput, not a flaky test.
 if command -v jq >/dev/null 2>&1; then
-  info "Phase 5b: asserting schema v4 shape on ${MANIFEST}"
+  info "Phase 5b: asserting schema v5 shape on ${MANIFEST}"
   VER=$(jq -r '.schema_version' "$MANIFEST")
-  if [ "$VER" != "4" ]; then
-    fail "schema_version=${VER}, want integer 4"; exit 1
+  if [ "$VER" != "5" ]; then
+    fail "schema_version=${VER}, want integer 5"; exit 1
   fi
+
+  # v5: adoption provenance. This run stops the container via NRI StopContainer,
+  # so the sensor must report the start-anchored mode — anything else means the
+  # container was adopted after it was already running, and the profile would be
+  # truncated. Asserting the exact value (not just "present") is the point: it is
+  # what makes a truncated window detectable at all.
+  AM=$(jq -r '.coverage.adoption_mode // "missing"' "$MANIFEST")
+  if [ "$AM" != "nri-start" ]; then
+    fail "coverage.adoption_mode=${AM}, want nri-start for an NRI-started container"; exit 1
+  fi
+  info "coverage.adoption_mode=${AM}"
+
+  # v5: terminality. The workload was scaled to 0, so the window closed because
+  # the container stopped — this must be a terminal profile. A false here would
+  # mean the file set is incomplete and must not be treated as evidence.
+  TERM=$(jq -r '.profile_terminal // "missing"' "$MANIFEST")
+  if [ "$TERM" != "true" ]; then
+    fail "profile_terminal=${TERM}, want true after a clean container stop"; exit 1
+  fi
+  info "profile_terminal=${TERM}"
   PSO=$(jq -r '.coverage.process_start_observed' "$MANIFEST")
   case "$PSO" in
     true|false) info "coverage.process_start_observed=${PSO}" ;;
@@ -230,7 +250,7 @@ if command -v jq >/dev/null 2>&1; then
   STAGES=$(jq -r '.event_loss.by_stage | keys | length' "$MANIFEST")
   info "event_loss.total=${LOSS_TOTAL} across ${STAGES} hard stage(s); tolerated.path_read_failed=${PR}"
 else
-  warn "jq not found — skipping schema v3 shape assertions"
+  warn "jq not found — skipping schema v5 shape assertions"
 fi
 
 # ── Phase 6: harden build ──────────────────────────────────────────────────────

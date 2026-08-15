@@ -13,7 +13,8 @@ This directory holds the formal JSON Schema for each published version:
 | [`v1.schema.json`](v1.schema.json) | 1 | legacy (retained) | string `"1"` |
 | [`v2.schema.json`](v2.schema.json) | 2 | legacy (retained) | integer `2` |
 | [`v3.schema.json`](v3.schema.json) | 3 | legacy (retained; revised in place 2026-06-11, see note) | integer `3` |
-| [`v4.schema.json`](v4.schema.json) | 4 | **current** | integer `4` |
+| [`v4.schema.json`](v4.schema.json) | 4 | legacy (retained) | integer `4` |
+| [`v5.schema.json`](v5.schema.json) | 5 | **current** | integer `5` |
 
 > **v4 (2026-07-06).** Adds the `s` access mode — stat-family existence checks
 > captured by the `vfs_fstatat` kprobe, emitted only when the sensor runs with
@@ -21,6 +22,27 @@ This directory holds the formal JSON Schema for each published version:
 > runtime companion rules, e.g. CPython pyc → sibling `.py`). Both are additive
 > enum values; no v3 field semantics changed. A v3 document is a valid v4
 > document apart from the `schema_version` const.
+
+> **v5 (2026-08-15).** Adds `coverage.adoption_mode` and top-level
+> `profile_terminal`, so a consumer can tell a **complete** observation window
+> from a **truncated** one.
+>
+> This distinction cannot be derived from the data already present. A truncated
+> window yields *fewer* file entries, so it is well-formed and reads as cleaner
+> than a complete profile rather than obviously broken — and any consumer that
+> treats "files this container did not open" as evidence (image minimisation,
+> sandbox validation) will silently under-report.
+>
+> Nor can it be derived from timestamps: comparing the sensor's `attach_time`
+> against the pod's container `StartedAt` fails because Kubernetes serialises
+> `StartedAt` at whole-second resolution (`metav1.Time` round-trips through
+> `time.RFC3339`), so any threshold must be ≥1s — and a container adopted a few
+> hundred milliseconds late is exactly the case that matters. `adoption_mode`
+> answers it directly, recorded by the mechanism that did the adopting.
+>
+> Both fields are additive; no v4 field semantics changed. Absent values are
+> untrusted by policy: a missing `adoption_mode` is treated as *not*
+> start-anchored, and a missing `profile_terminal` as *not* terminal.
 
 ## Versioning policy
 

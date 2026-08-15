@@ -25,8 +25,9 @@ type Aggregator struct {
 	// recorded attach the marker is always false (toward-false rule).
 	attachTime            time.Time
 	attachKnown           bool
-	processAlreadyRunning bool      // a process was already in the cgroup at attach
-	firstExecTime         time.Time // zero until the first exec is observed
+	processAlreadyRunning bool         // a process was already in the cgroup at attach
+	adoptionMode          AdoptionMode // v5: how the sensor came to watch this container
+	firstExecTime         time.Time    // zero until the first exec is observed
 
 	// R3 start-event records, in observation order.
 	starts []StartEvent
@@ -70,6 +71,18 @@ func (a *Aggregator) RecordAttach(attachTime time.Time, processAlreadyRunning bo
 	a.attachTime = attachTime.UTC()
 	a.attachKnown = true
 	a.processAlreadyRunning = processAlreadyRunning
+	a.mu.Unlock()
+}
+
+// RecordAdoptionMode sets the provenance of this observation window (v5).
+//
+// Kept separate from RecordAttach because it answers a different question:
+// RecordAttach records *when* the sensor attached, AdoptionMode records
+// *whether it could have attached in time* — which no timestamp can establish
+// on its own. Unset leaves AdoptionUnknown, which consumers treat as untrusted.
+func (a *Aggregator) RecordAdoptionMode(mode AdoptionMode) {
+	a.mu.Lock()
+	a.adoptionMode = mode
 	a.mu.Unlock()
 }
 
@@ -224,8 +237,15 @@ func (a *Aggregator) MergeAccessModeByBasename(basename string, mode AccessMode,
 	}
 }
 
-// Snapshot returns a point-in-time copy of the manifest with ProfileEnd set to now.
-// The Aggregator continues accumulating after Snapshot is called.
+// Snapshot returns a point-in-time copy of the manifest with ProfileEnd set to
+// now, marked NON-terminal (ProfileTerminal=false).
+//
+// The Aggregator continues accumulating after Snapshot is called, so the result
+// describes a window that may still be open. That matters more than it sounds:
+// a truncated window yields FEWER file entries, so it is well-formed and reads
+// as cleaner than a complete profile rather than obviously broken. Consumers
+// treating "files this container did not open" as evidence must use
+// SnapshotFinal, or check ProfileTerminal.
 func (a *Aggregator) Snapshot() Manifest {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -241,6 +261,7 @@ func (a *Aggregator) Snapshot() Manifest {
 	cov := Coverage{
 		ProcessStartObserved: a.processStartObservedLocked(),
 		AttachTime:           a.attachTime,
+		AdoptionMode:         a.adoptionMode,
 	}
 	if !a.firstExecTime.IsZero() {
 		fe := a.firstExecTime
@@ -258,6 +279,19 @@ func (a *Aggregator) Snapshot() Manifest {
 		EventLoss:       a.eventLossLocked(),
 		Files:           files,
 	}
+}
+
+// SnapshotFinal returns the manifest marked terminal (ProfileTerminal=true).
+// Call it only when the container has actually stopped, so the observation
+// window is known to be closed and the file set is complete.
+//
+// The distinction is the whole point of the flag: use Snapshot for a mid-life
+// capture (a shutdown flush, a periodic dump) and SnapshotFinal only on a real
+// container stop.
+func (a *Aggregator) SnapshotFinal() Manifest {
+	m := a.Snapshot()
+	m.ProfileTerminal = true
+	return m
 }
 
 // eventLossLocked computes the per-window EventLoss (v3). Caller must hold a.mu.

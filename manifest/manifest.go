@@ -23,14 +23,62 @@ import "time"
 //     per-window event-loss counters so a consumer can refuse "not observed ⇒
 //     not loaded" claims from a lossy observation window. No v2 field semantics
 //     changed.
-//   - v4 (current, integer 4): adds the "s" access mode (stat-family existence
+//   - v4 (integer 4): adds the "s" access mode (stat-family existence
 //     check, emitted only when the sensor runs with --trace-stat) and the
 //     "inferred-runtime" observation source (build-time runtime companion
 //     rules). Both are additive enum values; no v3 field semantics changed.
+//   - v5 (current, integer 5): adds Coverage.AdoptionMode (how the sensor came
+//     to watch this container) and Manifest.ProfileTerminal (whether the window
+//     closed because the container stopped, or was cut short). Both exist so a
+//     consumer can tell a COMPLETE observation window from a TRUNCATED one.
+//     That distinction cannot be derived from timestamps: a truncated window
+//     yields *fewer* file observations, so it reads as cleaner than a complete
+//     one rather than obviously broken. No v4 field semantics changed.
 //
 // Consumers MUST treat any profile lacking an integer schema_version (i.e. the
 // legacy string "1" form, or no field at all) as a legacy v1 profile.
-const SchemaVersion = 4
+const SchemaVersion = 5
+
+// AdoptionMode records how the sensor came to watch a container. It is the
+// provenance of the observation window, and it is what lets a consumer decide
+// whether the window can be trusted to cover the container's whole life.
+//
+// This exists because timestamp comparison cannot answer the question. The
+// obvious alternative — compare the sensor's attach time against the pod's
+// container StartedAt — fails because Kubernetes serializes StartedAt at
+// whole-second resolution (metav1.Time round-trips through time.RFC3339), so
+// any threshold must be >= 1s and a container adopted a few hundred
+// milliseconds late is indistinguishable from one adopted before it started.
+// Provenance answers it exactly, with no clock arithmetic.
+type AdoptionMode string
+
+const (
+	// AdoptionUnknown is the zero value: the sensor did not record provenance.
+	// Consumers MUST treat it as untrusted, the same as a late adoption — it is
+	// what every pre-v5 profile reads as.
+	AdoptionUnknown AdoptionMode = ""
+
+	// AdoptionNRIStart: the NRI StartContainer hook. The only start-anchored
+	// mode available today. containerd blocks on the hook, so the sensor
+	// attaches before the workload is signalled to exec — this is the one case
+	// where winning the race is guaranteed rather than probable.
+	AdoptionNRIStart AdoptionMode = "nri-start"
+
+	// AdoptionNRISync: the NRI Synchronize hook adopting a container that was
+	// already running when the sensor started (a restart, rollout, or node
+	// drain). The container's early file opens were dropped in-kernel before
+	// the sensor attached, so the window is truncated by construction.
+	AdoptionNRISync AdoptionMode = "nri-sync"
+)
+
+// StartAnchored reports whether the sensor attached before the container's
+// workload could have executed, and therefore whether the observation window
+// can be trusted to cover the container's whole life.
+//
+// Unknown provenance is NOT start-anchored. Any future discovery mechanism must
+// opt in explicitly rather than inherit trust by default — that bias is the
+// point of the field.
+func (m AdoptionMode) StartAnchored() bool { return m == AdoptionNRIStart }
 
 // ObservationSource describes how a file was included in the manifest.
 // Every FileEntry carries exactly one source. The source is the foundation of
@@ -153,6 +201,16 @@ type Coverage struct {
 	// FirstExecTime is the timestamp of the first exec event the sensor observed
 	// for the container. Nil when no exec was observed during the window.
 	FirstExecTime *time.Time `json:"first_exec_time,omitempty"`
+
+	// AdoptionMode (v5) records how the sensor came to watch this container.
+	// Empty on pre-v5 profiles, which consumers must treat as untrusted.
+	//
+	// ProcessStartObserved answers "did we see the first exec"; AdoptionMode
+	// answers "could we have". They are not redundant: ProcessStartObserved is
+	// derived from a timestamp comparison and can be wrongly true if the
+	// entrypoint exec is dropped and a later child exec lands instead.
+	// AdoptionMode is recorded directly by the discovery mechanism and cannot.
+	AdoptionMode AdoptionMode `json:"adoption_mode,omitempty"`
 }
 
 // Manifest is the file observation record for one container profiling run.
@@ -175,6 +233,18 @@ type Manifest struct {
 
 	// Coverage holds the v2 coverage markers (R2). Always present.
 	Coverage Coverage `json:"coverage"`
+
+	// ProfileTerminal (v5) reports whether this window closed because the
+	// container stopped (true) or was cut short while the container was still
+	// running (false) — a shutdown flush, or any other mid-life snapshot.
+	//
+	// Aggregator.Snapshot is deliberately non-terminal: it can be called at any
+	// time and the aggregator keeps accumulating afterwards. Without this flag a
+	// mid-life snapshot is indistinguishable on the wire from a complete one,
+	// because a truncated window produces a well-formed manifest with FEWER file
+	// entries. Any consumer treating "files this container did not open" as
+	// evidence — image minimisation, sandbox validation — MUST require true.
+	ProfileTerminal bool `json:"profile_terminal"`
 
 	// ContainerStarts lists the container starts the sensor witnessed during the
 	// window (R3), in observation order. Always present; never nil (empty slice
