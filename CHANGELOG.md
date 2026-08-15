@@ -8,6 +8,20 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Added
 
+- **Profile schema v5 — adoption provenance and window terminality.** Adds
+  `coverage.adoption_mode` (`nri-start` | `nri-sync`) and top-level
+  `profile_terminal`, so a consumer can distinguish a *complete* observation
+  window from a *truncated* one. This matters because a truncated window yields
+  **fewer** file entries, so it is well-formed and reads as cleaner than a
+  complete profile rather than obviously broken — any consumer treating "files
+  this container did not open" as evidence silently under-reports. It cannot be
+  derived from timestamps either: Kubernetes serialises container `StartedAt` at
+  whole-second resolution, so a container adopted a few hundred milliseconds
+  late is exactly the case a timestamp comparison cannot see. `nri-start` is the
+  only start-anchored mode (containerd blocks on the hook); absent values are
+  untrusted, so future discovery mechanisms must declare themselves rather than
+  inherit trust. Additive; no v4 field semantics changed.
+
 - **Stat tracing + profile schema v4** — optional `--trace-stat` sensor flag
   attaches a `vfs_fstatat` kprobe recording stat-family existence checks as the
   new `s` access mode. Interpreters prove files are required without opening

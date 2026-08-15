@@ -1,6 +1,7 @@
 package manifest_test
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -159,7 +160,7 @@ func TestAggregator_WriteJSON_validJSON(t *testing.T) {
 
 	s := buf.String()
 	for _, want := range []string{
-		`"schema_version": 4`,
+		fmt.Sprintf(`"schema_version": %d`, manifest.SchemaVersion),
 		`"container_id": "ctr1"`,
 		`"image_ref": "redis:7"`,
 		`"/usr/bin/redis-server"`,
