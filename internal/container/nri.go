@@ -12,6 +12,7 @@ import (
 
 	"github.com/containerd/nri/pkg/api"
 	"github.com/containerd/nri/pkg/stub"
+
 	"github.com/tracepod/tracepod/manifest"
 )
 
