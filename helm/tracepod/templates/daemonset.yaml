@@ -56,9 +56,13 @@ spec:
         - name: sys-kernel-btf
           mountPath: /sys/kernel/btf
           readOnly: true
+        # The sensor only ever stats cgroup directories (to read their inode as
+        # the cgroup ID) and reads cgroup.procs. It never writes here, so the
+        # mount is read-only — a write-capable mount on /sys/fs/cgroup is an
+        # unnecessary privilege ask that hardened node OSes may refuse.
         - name: sys-fs-cgroup
           mountPath: /sys/fs/cgroup
-          readOnly: false
+          readOnly: true
         - name: nri-socket
           mountPath: /var/run/nri
         {{- if not .Values.sensor.controllerURL }}
