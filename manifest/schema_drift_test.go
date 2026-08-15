@@ -42,6 +42,12 @@ var publishedSchemaHashes = map[string]string{
 	// --trace-stat) and the "inferred-runtime" observation source. Additive
 	// enum widening only; no v3 field semantics changed.
 	"v4.schema.json": "bdff234578a44f982a94829b450f988ee2d9701c9193ab33e9bee485fe59af93",
+	// v5 (2026-08-15): adds coverage.adoption_mode and profile_terminal, so a
+	// consumer can tell a complete observation window from a truncated one. That
+	// cannot be derived from timestamps — a truncated window yields FEWER file
+	// entries, so it reads as cleaner than a complete one. Additive; no v4 field
+	// semantics changed.
+	"v5.schema.json": "09fb35cfb1eb17e2e30262444e4411de72c5033998c2f491ff45d6c069038b44",
 }
 
 const schemaDir = "../docs/profile-schema"

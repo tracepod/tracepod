@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tracepod.com/profile-schema/v5.schema.json",
+  "title": "Tracepod profile document (schema v5)",
+  "description": "The profile JSON the sensor writes to profiles/<container-id>/files.json (standalone mode) or POSTs to the controller (DaemonSet mode). One document per container profiling window. v5 adds coverage.adoption_mode (how the sensor came to watch this container) and profile_terminal (whether the observation window closed because the container stopped). Both exist so a consumer can distinguish a COMPLETE window from a TRUNCATED one \u2014 a distinction that cannot be derived from timestamps, because a truncated window yields FEWER file entries and so reads as cleaner than a complete one rather than obviously broken. No v4 field semantics changed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "container_id",
+    "profile_start",
+    "profile_end",
+    "coverage",
+    "container_starts",
+    "event_loss",
+    "files",
+    "profile_terminal"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Profile schema version. Always 5 for documents matching this schema.",
+      "const": 5
+    },
+    "container_id": {
+      "description": "Runtime container ID the sensor profiled.",
+      "type": "string"
+    },
+    "image_ref": {
+      "description": "OCI image reference of the profiled container. Omitted in standalone mode when no image ref was resolved.",
+      "type": "string"
+    },
+    "profile_start": {
+      "description": "UTC RFC 3339 timestamp when the aggregator was created (first witnessed start).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "profile_end": {
+      "description": "UTC RFC 3339 timestamp when the profile was snapshotted (container stop).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "coverage": {
+      "description": "Per-container coverage markers (R2). The sensor records raw signals; it does not score them.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "process_start_observed",
+        "attach_time"
+      ],
+      "properties": {
+        "process_start_observed": {
+          "description": "True only when the sensor can demonstrate it observed the container's main process from its first exec (its cgroup attachment won the NRI startup race). Any uncertainty resolves to false. A false value means startup code paths are systematically missing from this profile.",
+          "type": "boolean"
+        },
+        "attach_time": {
+          "description": "UTC RFC 3339 timestamp when the sensor added the container's cgroup to the BPF allowlist \u2014 the earliest instant any event could be observed. The zero value (0001-01-01T00:00:00Z) means no attach was recorded.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "first_exec_time": {
+          "description": "UTC RFC 3339 timestamp of the first exec event observed for the container. Omitted when no exec was observed during the window.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "adoption_mode": {
+          "description": "How the sensor came to watch this container, recorded directly by the discovery mechanism. 'nri-start' is the only start-anchored mode: containerd blocks on the NRI StartContainer hook, so the sensor attaches before the workload is signalled to exec. 'nri-sync' means the container was already running when the sensor started (restart/rollout/drain), so its early file opens were dropped in-kernel and the window is truncated by construction. Absent on pre-v5 profiles; consumers MUST treat absent as untrusted, the same as a late adoption.",
+          "type": "string",
+          "enum": [
+            "nri-start",
+            "nri-sync"
+          ]
+        }
+      }
+    },
+    "container_starts": {
+      "description": "Container starts the sensor witnessed during the window (R3), in observation order. A consumer counts full restarts within a profile as length-1, summing across the profiles emitted for a workload for cross-window totals.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "container_id",
+          "timestamp"
+        ],
+        "properties": {
+          "container_id": {
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "UTC RFC 3339 timestamp of the witnessed start.",
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "event_loss": {
+      "description": "Window-level event-loss counters (v3). Counts are process-wide and per profiling window, NOT per container: buffer drops are not attributable to one container, so any nonzero total taints 'not observed => not loaded' conclusions for every container observed in this window. total counts HARD losses only and is a strict-zero gate: total==0 is a positive claim ('instrumented at every audited hard loss point and lost nothing'), never 'did not count'. Tolerated losses (counted observations lost with a known intrinsic floor) are reported separately in 'tolerated' and excluded from total; consumers MUST gate them with their own configurable ceiling and surface the counts, never fold them into total. v3 was revised in place to add 'tolerated' before any consumer existed \u2014 see docs/profile-schema/README.md (v3-revision note).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "by_stage",
+        "tolerated",
+        "not_instrumented"
+      ],
+      "properties": {
+        "total": {
+          "description": "Sum of all by_stage (HARD-loss) counts; excludes tolerated. The strict-zero consumer gate: treat any nonzero value as grounds to withhold a 'never loaded' claim for the whole window.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "by_stage": {
+          "description": "Per-stage HARD-loss counts for the window, keyed by audited loss-point name (bpf_reserve_failed, decode_failed, untracked_cgroup). Their values sum to total. A stage present with value 0 is an explicit 'counted, lost nothing'. A stage that could not be instrumented is absent here and listed in not_instrumented instead, never read as a false zero. Diagnosis only \u2014 gate on total.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "tolerated": {
+          "description": "Per-stage TOLERATED-loss counts for the window, keyed by audited loss-point name (path_read_failed). Counted observations lost for reasons with a known intrinsic floor (e.g. an openat filename pointer that faulted before its page was present, idle floor 0-2 per container). EXCLUDED from total. A consumer MUST gate these with its own conservative, configurable ceiling and MUST surface the counts in any evidence it emits \u2014 never fold them into total, never ignore them. A stage present with value 0 is an explicit 'counted, lost nothing'.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "not_instrumented": {
+          "description": "Audited loss points (hard or tolerated) that were NOT counted for this window (the zero-is-a-claim escape hatch). Stages named here are absent from by_stage and tolerated so they never masquerade as a zero. Empty in the normal fully-instrumented case (this sensor instruments every audited point as of v3).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "files": {
+      "description": "Observed files, keyed by absolute path.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "access_modes",
+          "first_seen",
+          "last_seen",
+          "count"
+        ],
+        "properties": {
+          "source": {
+            "description": "How the file entered the manifest. Load-bearing for confidence scoring and audit trails.",
+            "enum": [
+              "direct",
+              "inferred-elf",
+              "inferred-runtime",
+              "directory-inclusion",
+              "manual",
+              "ensure-dir",
+              "ensure-file"
+            ]
+          },
+          "access_modes": {
+            "description": "Observed access modes: r (read), w (write), x (execute), l (link), m (mmap PROT_EXEC), s (stat-family existence check; --trace-stat only).",
+            "type": "array",
+            "items": {
+              "enum": [
+                "r",
+                "w",
+                "x",
+                "l",
+                "m",
+                "s"
+              ]
+            }
+          },
+          "first_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "count": {
+            "description": "Number of observed opens. 0 for inferred-elf and directory-inclusion entries.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "inferred_from": {
+            "description": "source=inferred-elf: the ELF binary that required this shared object. source=inferred-runtime: the observed file that implied this one (e.g. the __pycache__ pyc whose sibling .py source was added).",
+            "type": "string"
+          },
+          "included_because": {
+            "description": "source=directory-inclusion / manual: the reason the path was included.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "profile_terminal": {
+      "description": "True when this window closed because the container stopped, so the file set is complete. False when the window was cut short while the container was still running (e.g. a sensor shutdown flush). Any consumer treating 'files this container did not open' as evidence \u2014 image minimisation, sandbox validation \u2014 MUST require true. Absent on pre-v5 profiles.",
+      "type": "boolean"
+    }
+  }
+}
