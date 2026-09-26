@@ -8,7 +8,10 @@ sensor:
   postUnownedPodsNamespace: ""
   image:
     repository: ghcr.io/tracepod/tracepod-sensor
-    tag: latest
+    # tag: empty defaults to the chart's appVersion (v-prefixed, matching the
+    # tag the release workflow pushes). Override to pin to a different sensor
+    # version than the chart, or to a dev build.
+    tag: ""
     pullPolicy: IfNotPresent
 
   # controllerURL: when set, the sensor POSTs per-container manifests to the
