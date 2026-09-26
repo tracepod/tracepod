@@ -23,7 +23,7 @@ spec:
       hostPID: true
       containers:
       - name: sensor
-        image: "{{ .Values.sensor.image.repository }}:{{ .Values.sensor.image.tag }}"
+        image: "{{ .Values.sensor.image.repository }}:{{ .Values.sensor.image.tag | default (printf "v%s" .Chart.AppVersion) }}"
         imagePullPolicy: {{ .Values.sensor.image.pullPolicy }}
         args:
           - --node-name=$(NODE_NAME)

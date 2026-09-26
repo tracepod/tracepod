@@ -6,6 +6,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-26
+
 ### Added
 
 - **Profile schema v5 — adoption provenance and window terminality.** Adds
@@ -53,6 +55,41 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
   - The report shape is pinned by a committed JSON Schema
     (`contracts/report-schema/reachability-report.v1.json`); CI fails if the schema
     and the CLI's declared supported version diverge.
+- **NRI managed-Kubernetes gap documented** — `docs/KNOWN-LIMITATIONS.md` §0.6
+  covers the case where a node's containerd ships NRI disabled (the default
+  below containerd 2.0, and generally on managed EKS/AKS node pools): the sensor
+  warns once to stderr, stays `READY=true` with zero restarts, and traces
+  nothing, while the dashboard keeps serving existing sessions — so the system
+  reads as healthy while observing nothing. Documents the containerd config fix
+  and where it does and does not apply (no fix on managed node groups without a
+  custom launch template, or on hardened OSes such as Bottlerocket). A new
+  read-only `hack/discovery-probe.sh` preflight script checks NRI reachability,
+  BTF, cgroup v2, cgroupfs readability/driver, and inotify limits, and exits
+  non-zero with the exact remediation when the sensor would trace nothing.
+
+### Changed
+
+- **`/sys/fs/cgroup` DaemonSet mount narrowed to `readOnly: true`.** The sensor
+  only stats cgroup directories and reads `cgroup.procs`; it never writes.
+  Removes an unnecessary privilege ask and avoids hardened node OSes that may
+  refuse a write-capable cgroupfs mount outright.
+
+### Fixed
+
+- **`--post-unowned-pods-namespace` restores the sandbox profile channel.**
+  Sandbox validation pods have no Deployment/StatefulSet owner, so the OSS-5
+  owner gate silently skipped their profile POST — every validation reported
+  "sandbox profile not received". The new flag (Helm:
+  `sensor.postUnownedPodsNamespace`) names exactly one namespace whose unowned
+  pods POST under their own pod name; every other namespace keeps the skip so
+  cron pods and one-offs don't pollute the workload list.
+- **`flushAll` denies cgroups before dropping aggregators.** `flushAll` deleted
+  every aggregator and then POSTed each profile serially without denying the
+  cgroup first, so for that entire window `handle()` counted every subsequent
+  event against the deleted aggregators as `untracked_cgroup` hard loss — every
+  profile flushed after the first reported hard loss on every ordinary shutdown
+  (rollout, node drain, SIGTERM) that never actually happened. Denying first
+  loses nothing recordable; it only stops those events being miscounted as loss.
 
 ## [0.1.2] - 2026-06-16
 
@@ -186,6 +223,7 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 - `schema_version` changed type from string (`"1"`) to integer (`2`). Consumers
   must treat a string `schema_version` (or its absence) as a legacy v1 profile.
 
-[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/tracepod/tracepod/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/tracepod/tracepod/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/tracepod/tracepod/compare/v0.1.0...v0.1.1
