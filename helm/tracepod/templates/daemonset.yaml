@@ -18,6 +18,10 @@ spec:
         {{- include "tracepod.sensorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "tracepod.sensorName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       # hostPID is required so bpf_get_current_pid_tgid() returns PIDs visible
       # in the host /proc, enabling CWD resolution for relative-path openat events.
       hostPID: true

@@ -6,6 +6,12 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`imagePullSecrets` chart value** — the sensor DaemonSet can now pull from
+  private registries or private mirrors; previously no pull secret could be
+  set.
+
 ## [0.2.0] - 2026-09-26
 
 ### Added

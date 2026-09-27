@@ -91,6 +91,21 @@ kubectl -n tracepod logs daemonset/tracepod-sensor | grep -E "NRI|tracking"
 | `sensor.nodeSelector` | `{}` | Node selector for the DaemonSet |
 | `sensor.tolerations` | `[]` | Tolerations — add entries to profile tainted nodes |
 | `sensor.affinity` | `{}` | Affinity rules |
+| `imagePullSecrets` | `[]` | Secrets of type `kubernetes.io/dockerconfigjson` in the release namespace, used to pull images from private registries or a private mirror of the sensor image |
+
+## Private registries
+
+If the sensor image (or a mirror of it) lives in a private registry, create a
+`kubernetes.io/dockerconfigjson` Secret in the release namespace and reference it via
+`imagePullSecrets`:
+
+```sh
+kubectl create secret docker-registry regcred -n tracepod \
+  --docker-server=<registry> --docker-username=<user> --docker-password=<token>
+helm install tracepod ./helm/tracepod -n tracepod --set 'imagePullSecrets[0].name=regcred'
+```
+
+The Secret must be in the same namespace as the release.
 
 ## Retrieving profiles (standalone mode)
 

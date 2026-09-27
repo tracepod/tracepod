@@ -1,3 +1,10 @@
+# imagePullSecrets: Secrets of type kubernetes.io/dockerconfigjson in the
+# release namespace, used to pull images from private registries (or a
+# private mirror of the sensor image).
+imagePullSecrets: []
+# imagePullSecrets:
+#   - name: regcred
+
 sensor:
   # traceStat additionally records stat-family existence checks (schema v4
   # access mode "s"). Higher event volume; event_loss counters surface any
