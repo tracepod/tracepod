@@ -2,10 +2,13 @@
 # discovery-probe.sh — check whether a node can support Tracepod's sensor.
 #
 # The sensor discovers containers via containerd's NRI. NRI ships disabled by
-# default below containerd 2.0 and managed node pools generally do not enable
-# it. On such a node the sensor starts, warns once to stderr, stays READY, and
-# traces nothing — see docs/KNOWN-LIMITATIONS.md §0.6. This script turns that
-# silent condition into an answer you get BEFORE deploying.
+# default below containerd 2.0; managed node pools on containerd 2.x images
+# (current EKS AL2023, AKS Ubuntu 24.04, AKS Azure Linux 3.0) have it on by
+# default, while older images (e.g. AKS Ubuntu 22.04, containerd 1.7) still
+# ship it off. On a node where it's off, the sensor starts, warns once to
+# stderr, stays READY, and traces nothing — see docs/KNOWN-LIMITATIONS.md
+# §0.6. This script turns that silent condition into an answer you get
+# BEFORE deploying.
 #
 # It also measures the preconditions a future cgroupfs-based fallback would
 # need, so the viability question on hardened node OSes (Bottlerocket, SELinux)

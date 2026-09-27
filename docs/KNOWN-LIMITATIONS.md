@@ -100,16 +100,17 @@ so that non-CRI containers (`docker run`, `nerdctl run`) can also be profiled.
 
 ---
 
-## 0.6. NRI is disabled by default on managed Kubernetes
+## 0.6. NRI must be enabled in containerd (off by default before containerd 2.0)
 
 ### What happens
 
 The sensor's only container-discovery mechanism is containerd's NRI. **NRI ships
-disabled by default in containerd below 2.0**, and managed node pools (EKS, AKS)
-generally do not enable it.
+disabled by default in containerd below 2.0** and is **enabled by default from
+containerd 2.0 onward** (see "Which nodes are affected" below for what that
+means on managed Kubernetes today).
 
-On such a node the sensor starts, fails to connect, prints one line to stderr,
-and keeps running:
+On a node where NRI is off, the sensor starts, fails to connect, prints one
+line to stderr, and keeps running:
 
 ```
 warn: NRI unavailable (start NRI stub: failed to connect to NRI service:
@@ -128,7 +129,30 @@ sessions it already had, so the system reads as healthy while observing nothing.
 Reproduced on 2026-08-15 by setting `disable = true` under
 `[plugins."io.containerd.nri.v1.nri"]` on a kind node: the sensor pod stayed
 Ready, `/api/v1/health` returned 200, the dashboard summary was byte-identical
-to its pre-break state, and a freshly deployed workload never appeared.
+to its pre-break state, and a freshly deployed workload never appeared. This
+is what happens on any node — managed or not — wherever NRI is off.
+
+### Which nodes are affected
+
+The rule is the containerd version, not the platform: **containerd ≥ 2.0
+enables NRI by default; containerd < 2.0 ships it disabled.** "Managed
+Kubernetes" is not itself a predictor — it depends entirely on which
+containerd version the node's default image currently bundles.
+
+Current default node images, as of **September 2026**:
+
+| Node image | containerd version | NRI default | Source |
+|---|---|---|---|
+| EKS Amazon Linux 2023 (AMI `v20260923`, 2026-09-24) | 2.2.7 | **On** — `nodeadm`'s expected containerd-v2 config (its e2e test fixture) sets `disable = false`, `socket_path = '/var/run/nri/nri.sock'` | [`nodeadm/test/e2e/cases/containerdv2-config/expected-containerd-configv2.toml`](https://github.com/awslabs/amazon-eks-ami/blob/main/nodeadm/test/e2e/cases/containerdv2-config/expected-containerd-configv2.toml) |
+| AKS Ubuntu 24.04 (`r2404`) | 2.3.5 | Expected **on** (containerd 2.x default; AgentBaker's own templates carry no NRI override) | [`parts/common/components.json`](https://github.com/Azure/AgentBaker/blob/master/parts/common/components.json) |
+| AKS Azure Linux 3.0 | 2.2.4 | Expected **on** (containerd 2.x default; node config not independently inspected) | [`parts/common/components.json`](https://github.com/Azure/AgentBaker/blob/master/parts/common/components.json) |
+| AKS Ubuntu 22.04 (`r2204`) | 1.7.35 | **Off** | [`parts/common/components.json`](https://github.com/Azure/AgentBaker/blob/master/parts/common/components.json) |
+| Bottlerocket `aws-k8s-1.33`+ | 2.x | Expected **on** per a maintainer statement; no Bottlerocket setting toggles it | [bottlerocket-core-kit#539](https://github.com/bottlerocket-os/bottlerocket-core-kit/issues/539) |
+| containerd upstream default | 2.0+ | **On** by design | [containerd 2.0 release notes, "NRI is now enabled by default"](https://github.com/containerd/containerd/blob/main/docs/containerd-2.0.md) |
+
+This table reflects vendor images as of September 2026 — node images change on
+their own release cadence. Don't rely on this table alone: run
+`hack/discovery-probe.sh` against the real node before deploying.
 
 ### How to check
 
@@ -142,7 +166,9 @@ non-zero when the sensor would trace nothing.
 
 ### Current workaround
 
-**Enable NRI in containerd.** On any node where you control the containerd
+This is the fix for **containerd 1.x nodes** — e.g. AKS Ubuntu 22.04, older
+EKS AMIs pinned below the containerd-2.x default, or any self-managed node
+still on containerd 1.x. On any such node where you control the containerd
 config, add:
 
 ```toml
@@ -159,20 +185,25 @@ then restart containerd. Where to put it:
 | EKS (self-managed nodes / karpenter `NodeClass`) | same, via the AMI's userdata or a `NodeClass` userdata block |
 | AKS | node customization / custom node configuration on the node pool |
 | kubeadm, k3s, on-prem | edit `/etc/containerd/config.toml` directly |
-| containerd ≥ 2.0 | NRI is enabled by default — nothing to do |
 
 This is the recommended fix wherever it is available: it costs one bootstrap
 line and gives the sensor its strongest discovery signal (see §1 — the NRI
 `StartContainer` hook is a synchronous barrier, so the sensor attaches *before*
-the workload execs).
+the workload execs). On AKS, the simplest fix is often to move the node pool to
+a containerd 2.x image (e.g. AKS Ubuntu 24.04) instead of patching the config.
 
 ### Where this does not work
 
-Managed node groups with no custom launch template, and hardened node OSes such
-as Bottlerocket, where containerd's configuration is not operator-editable. On
-those nodes Tracepod cannot currently profile workloads. That is a documented
-non-support, not a silent degradation — the probe script above tells you so
-before you deploy.
+Managed node groups with no custom launch template running a containerd-1.x
+image, where containerd's configuration is not operator-editable. Managed node
+groups on current containerd-2.x images (EKS AL2023, AKS Ubuntu 24.04, AKS
+Azure Linux 3.0) are no longer in this category — NRI is on there by default.
+
+Bottlerocket is a separate case: NRI is expected on for the `1.33`+ variants
+(containerd 2.x), but whether the sensor's privileged pod works under
+Bottlerocket's SELinux policy (those pods run as `control_t`, not `super_t`) is
+**unverified**, not "unsupported." Treat it as untested until someone confirms
+it either way.
 
 ### Long-term direction
 
@@ -182,7 +213,9 @@ review rounds and each round found defects whose failure mode was a *falsely
 clean* profile — fewer observed files, read as cleaner rather than broken. Since
 a truncated profile can produce a minimised image that is missing files, an
 honest "not supported here" is preferable to a fallback that might quietly
-under-report. Revisit once the target environments can actually be tested.
+under-report. Revisit once the target environments can actually be tested. As
+managed node images move to containerd 2.x by default, the population that
+would actually need this fallback keeps shrinking.
 
 ---
 
