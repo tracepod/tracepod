@@ -58,10 +58,10 @@ provision:
     script: |
       #!/bin/bash
       set -eux
-      dnf install -y tar curl-minimal bpftool || dnf install -y tar curl bpftool
+      dnf install -y tar curl-minimal || dnf install -y tar curl
       # bpftool package may not exist in all AL2023 repos; don't fail the
       # whole provision over an optional diagnostic tool.
-      dnf install -y bpftool || echo "bpftool package unavailable — continuing without it"
+      dnf install -y bpftool || echo "bpftool unavailable — continuing without it"
 
 probes:
   - description: "kernel is 6.1.x (AL2023 LTS base build)"

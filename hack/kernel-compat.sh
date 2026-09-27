@@ -44,7 +44,6 @@
 set -uo pipefail
 
 SENSOR_VERSION="0.2.1"
-SENSOR_TARBALL="tracepod_sensor_${SENSOR_VERSION}_linux_arm64.tar.gz"
 RELEASE_BASE="https://github.com/tracepod/tracepod/releases/download/v${SENSOR_VERSION}"
 WORKDIR="$(mktemp -d /tmp/tp-kernel-compat.XXXXXX)"
 CGROUP="/sys/fs/cgroup/tp-compat"
@@ -76,6 +75,14 @@ fi
 head2 "Host"
 info "uname -r: $(uname -r)"
 info "os-release: $(grep -m1 PRETTY_NAME /etc/os-release | cut -d= -f2- | tr -d '\"')"
+
+case "$(uname -m)" in
+  aarch64|arm64) HOST_ARCH="arm64" ;;
+  x86_64|amd64) HOST_ARCH="amd64" ;;
+  *) fail "unsupported architecture '$(uname -m)' — no released sensor tarball for it"; exit 1 ;;
+esac
+info "detected arch: $(uname -m) -> $HOST_ARCH"
+SENSOR_TARBALL="tracepod_sensor_${SENSOR_VERSION}_linux_${HOST_ARCH}.tar.gz"
 
 head2 "1. Preconditions"
 if [ -r /sys/kernel/btf/vmlinux ]; then pass "/sys/kernel/btf/vmlinux present"; else fail "/sys/kernel/btf/vmlinux missing"; fi
@@ -184,8 +191,13 @@ run_probe_load_test() {
     warn "[$mode] $kplist not readable — skipping debugfs cross-check"
   fi
 
-  head2 "6. Programs actually fire on a workload ($mode)"
+  head2 "6. Sensor BPF programs execute (system-wide run_cnt) ($mode)"
+  # run_cnt counts executions system-wide — the kprobe itself filters by
+  # cgroup internally — so a nonzero count proves the program runs on this
+  # kernel, not that events for the test cgroup specifically reached
+  # userspace (that is step 7's job).
   sysctl -w kernel.bpf_stats_enabled=1 >/dev/null 2>&1
+  local stats_rc=$?
   local sentinel="$SENTINEL_DIR/sentinel-$mode-$$"
   local exe="$SENTINEL_DIR/tp-exec-$mode-$$"
   echo "tracepod-kernel-compat-$mode-$RANDOM" > "$sentinel"
@@ -194,19 +206,58 @@ run_probe_load_test() {
   bash -c "echo \$\$ > $CGROUP/cgroup.procs; cat $sentinel >/dev/null; $exe"
   sleep 1
 
-  local ran=0
-  if command -v bpftool >/dev/null 2>&1; then
-    # Any kprobe/kernel prog owned by this sensor pid's fds with run_cnt > 0.
-    if bpftool prog show 2>/dev/null | grep -A1 kprobe | grep -q "run_cnt"; then
-      bpftool prog show 2>/dev/null | grep -B1 "run_cnt" | sed 's/^/        bpftool: /'
-      if bpftool prog show 2>/dev/null | awk '/run_cnt/{print}' | grep -qv "run_cnt 0"; then
-        pass "[$mode] bpftool reports nonzero run_cnt for at least one program"
-        ran=1
+  local required_progs="kprobe_openat kprobe_execve kprobe_mmap"
+  if [ "$mode" = "trace-stat" ]; then required_progs="$required_progs kprobe_stat"; fi
+
+  if ! command -v bpftool >/dev/null 2>&1; then
+    warn "[$mode] bpftool not available — cannot confirm sensor programs executed"
+  else
+    if [ "$stats_rc" -ne 0 ]; then
+      warn "[$mode] 'sysctl -w kernel.bpf_stats_enabled=1' failed — run_cnt below may read as 0 regardless of whether the program actually ran"
+    fi
+
+    local bpftool_out
+    bpftool_out="$(bpftool prog show 2>/dev/null)"
+
+    local -A prog_runcnt=()
+    while read -r pname pcount; do
+      [ -n "$pname" ] && prog_runcnt["$pname"]="$pcount"
+    done < <(printf '%s\n' "$bpftool_out" | awk '
+      function flush(b) {
+        name = ""; runcnt = ""
+        n = split(b, arr, " ")
+        for (i = 1; i <= n; i++) {
+          if (arr[i] == "name") name = arr[i + 1]
+          if (arr[i] == "run_cnt") runcnt = arr[i + 1]
+        }
+        if (name != "") print name, (runcnt == "" ? "NA" : runcnt)
+      }
+      /^[0-9]+:/ { if (block != "") flush(block); block = $0; next }
+      { block = block " " $0 }
+      END { if (block != "") flush(block) }
+    ')
+
+    for prog in $required_progs; do
+      if [ -n "${prog_runcnt[$prog]+x}" ]; then
+        info "[$mode] bpftool: $prog run_cnt=${prog_runcnt[$prog]}"
+      else
+        fail "[$mode] sensor program '$prog' not found in 'bpftool prog show' output"
+      fi
+    done
+    # kprobe_stat may be loaded even in plain "openat" mode (bpf2go loads the
+    # full program set); it is not required there, so only report it.
+    if [ "$mode" = "openat" ] && [ -n "${prog_runcnt[kprobe_stat]+x}" ]; then
+      info "[$mode] bpftool: kprobe_stat run_cnt=${prog_runcnt[kprobe_stat]} (loaded but not required in this mode)"
+    fi
+
+    if [ -n "${prog_runcnt[kprobe_openat]+x}" ]; then
+      local openat_runcnt="${prog_runcnt[kprobe_openat]}"
+      if [ "$openat_runcnt" != "NA" ] && [ "$openat_runcnt" -gt 0 ] 2>/dev/null; then
+        pass "[$mode] kprobe_openat run_cnt=$openat_runcnt (nonzero — sensor's BPF program executed on this kernel)"
+      else
+        fail "[$mode] kprobe_openat run_cnt is zero or unreadable ($openat_runcnt) — program did not execute"
       fi
     fi
-  fi
-  if [ "$ran" -eq 0 ]; then
-    warn "[$mode] could not confirm nonzero run_cnt via bpftool (unavailable or inconclusive) — programs attached (step 4/5) but firing not independently confirmed here"
   fi
 
   head2 "7. Userspace manifest recording ($mode) — expected KNOWN-GAP"
