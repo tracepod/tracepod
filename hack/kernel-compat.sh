@@ -19,31 +19,20 @@
 #   limactl shell al2023-kernel -- sudo bash /tmp/kernel-compat.sh
 #   limactl stop al2023-kernel
 #
-# KNOWN GAP (not an AL2023 finding — reproduces on every kernel, including
-# the Ubuntu dev VM and CI): the sensor's `--cgroup-path` debug flag
-# (cmd/sensor/main.go:96-104) only adds the cgroup to the in-kernel BPF
-# allowlist. It never creates a userspace aggregator for that cgroup —
-# aggregators are only created by the NRI container-start hook
-# (onContainerStart, main.go:304). `handle()` (main.go:548-558) drops every
-# ring-buffer event for a cgroup with no live aggregator BEFORE dispatch, so
-# with the released binary `--verbose` prints nothing for `--cgroup-path`
-# cgroups, on any kernel. That makes a true "open a sentinel file, see it in
-# the sensor's manifest" end-to-end test impossible with the released binary
-# alone. This script instead verifies the parts that a kernel version
-# actually decides — BPF load, kprobe attach, and (via debugfs/bpftool) that
-# the programs actually fire on the workload — and separately records the
-# userspace gap so it is not silently mistaken for a kernel failure.
+# Since v0.2.2, `--cgroup-path` registers a userspace aggregator before
+# allowlisting the cgroup (see cmd/sensor/main.go registerManualCgroup), so
+# step 7 below is a real end-to-end check: a manual cgroup's opens/execs must
+# show up in the sensor's verbose output, not merely load and attach.
 #
 # A true end-to-end run would need containerd + NRI configured in the VM so
 # a real container start goes through onContainerStart; that roughly doubles
 # the setup here and contradicts the expected (and fine) "NRI unreachable"
 # result from discovery-probe.sh in this bare rig. Left as a follow-up.
 #
-# Exit code: 0 if every check PASSes, 1 if any check FAILs. KNOWN-GAP lines
-# do not affect the exit code.
+# Exit code: 0 if every check PASSes, 1 if any check FAILs.
 set -uo pipefail
 
-SENSOR_VERSION="0.2.1"
+SENSOR_VERSION="0.2.2"
 RELEASE_BASE="https://github.com/tracepod/tracepod/releases/download/v${SENSOR_VERSION}"
 WORKDIR="$(mktemp -d /tmp/tp-kernel-compat.XXXXXX)"
 CGROUP="/sys/fs/cgroup/tp-compat"
@@ -53,7 +42,6 @@ FAILED=0
 pass() { printf '  PASS  %s\n' "$*"; }
 fail() { printf '  FAIL  %s\n' "$*"; FAILED=1; }
 warn() { printf '  WARN  %s\n' "$*"; }
-gap()  { printf '  KNOWN-GAP  %s\n' "$*"; }
 info() { printf '        %s\n' "$*"; }
 head2() { printf '\n== %s ==\n' "$*"; }
 
@@ -260,12 +248,11 @@ run_probe_load_test() {
     fi
   fi
 
-  head2 "7. Userspace manifest recording ($mode) — expected KNOWN-GAP"
+  head2 "7. Userspace recording through --cgroup-path ($mode)"
   if grep -qE "file=$sentinel|exec=$exe" "$logf"; then
     pass "[$mode] sensor verbose log recorded the sentinel (aggregator existed for this cgroup)"
   else
-    gap "[$mode] sensor verbose log has ZERO 'file=' or 'exec=' lines for the sentinel/exec (checked: $sentinel, $exe)."
-    gap "[$mode] Root cause (not kernel-specific — see script header): --cgroup-path never registers a userspace aggregator (cmd/sensor/main.go:96-104), and handle() drops events for cgroups with no aggregator before dispatch (cmd/sensor/main.go:548-558, see the untrackedCgroup counter)."
+    fail "[$mode] sensor verbose log has no 'file=' or 'exec=' line for the sentinel/exec — --cgroup-path recording regressed (see cmd/sensor/main.go registerManualCgroup)"
   fi
 
   kill "$SENSOR_PID" 2>/dev/null; wait "$SENSOR_PID" 2>/dev/null; SENSOR_PID=""
@@ -295,7 +282,7 @@ fi
 
 head2 "Summary"
 if [ "$FAILED" -eq 0 ]; then
-  echo "ALL CHECKS PASSED (KNOWN-GAP items above are expected — see script header)"
+  echo "ALL CHECKS PASSED"
 else
   echo "AT LEAST ONE CHECK FAILED"
 fi
