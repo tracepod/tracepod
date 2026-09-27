@@ -4,13 +4,19 @@ name: Kernel compat (Amazon Linux 2023, x86_64, KVM)
 # ubuntu-latest runner and runs hack/kernel-compat.sh against a sensor binary
 # built FROM THE COMMIT under test. AL2023 is EKS's default node OS; this is
 # the x86_64 counterpart to the arm64 Lima rig at infra/lima/al2023-kernel.yaml
-# (which is run by hand locally). ubuntu-latest exposes /dev/kvm since the
-# runner update of 2024-01-17 / GA'd 2024-04-02 (see PR description / report
-# for the changelog citation) — no nested-virtualization workaround needed,
-# just a udev rule to make the device group-writable for the runner user.
+# (which is run by hand locally). ubuntu-latest exposes /dev/kvm as a GA'd
+# feature since 2024-04-02 (see
+# https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/)
+# — no nested-virtualization workaround needed, just a udev rule to make the
+# device group-writable for the runner user.
 
 on:
   pull_request:
+    # Widened beyond the sensor/probe/ringbuf paths below: a cilium/ebpf bump
+    # in go.mod is the change most likely to break kprobe attach on another
+    # kernel; manifest/ holds the aggregator that --cgroup-path recording
+    # depends on; Dockerfile.sensor/Makefile are the build inputs this
+    # workflow's sensor image is built from.
     paths:
       - "cmd/sensor/**"
       - "internal/probe/**"
@@ -18,16 +24,29 @@ on:
       - "internal/ringbuf/**"
       - "hack/kernel-compat.sh"
       - ".github/workflows/kernel-compat-al2023.yaml"
+      - "go.mod"
+      - "go.sum"
+      - "manifest/**"
+      - "internal/sensor/**"
+      - "Dockerfile.sensor"
+      - "Makefile"
   push:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 defaults:
   run:
-    # Explicit `bash`, not the default `sh` semantics: we pipe SSH/QEMU
-    # output through `tee` in a couple of places, and without `pipefail`
-    # a failing remote command would be masked by a successful `tee`.
+    # Explicit `bash`, not the unspecified default `bash -e {0}`: per GitHub's docs
+    # (https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#defaultsrunshell),
+    # specifying `shell: bash` runs steps as `bash --noprofile --norc -eo
+    # pipefail {0}` instead of the unspecified Linux default of `bash -e
+    # {0}` — it's this that adds `pipefail`, which we need since we pipe
+    # SSH/QEMU output through `tee` in a couple of places and without it a
+    # failing remote command would be masked by a successful `tee`.
     shell: bash
 
 env:
