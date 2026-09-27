@@ -333,6 +333,30 @@ limactl shell k8s-dev -- bash -c "cd ~/work/tracepod && bash hack/e2e/run-e2e.sh
 The same pipeline runs in GitHub Actions on every push to `main` via
 `.github/workflows/e2e.yaml` (ubuntu-latest, amd64, no Lima VM needed).
 
+### Kernel compatibility (Amazon Linux 2023)
+
+EKS's default node OS is Amazon Linux 2023 (kernels 6.1 / 6.12 / 6.18
+depending on AMI release), but local dev and CI only exercise Ubuntu kernels
+(6.8, 6.17). `infra/lima/al2023-kernel.yaml` provisions a bare AL2023 VM
+(kernel 6.1, no containerd/kubelet) to check that the sensor's BPF programs
+load and its kprobes attach on AL2023's kernel build:
+
+```bash
+limactl start --tty=false --name=al2023-kernel infra/lima/al2023-kernel.yaml
+limactl copy hack/kernel-compat.sh al2023-kernel:/tmp/kernel-compat.sh
+limactl copy hack/discovery-probe.sh al2023-kernel:/tmp/discovery-probe.sh
+limactl shell al2023-kernel -- sudo bash /tmp/kernel-compat.sh
+limactl stop al2023-kernel   # leaves the VM in place for reuse
+```
+
+`hack/kernel-compat.sh` downloads the released sensor binary (or set
+`SENSOR_BIN=/path/to/sensor` to use a local build), verifies BTF/cgroup v2
+preconditions, confirms every kprobe symbol exists, confirms the sensor
+attaches all of them (fatal `open probe:` error otherwise), cross-checks
+`/sys/kernel/debug/kprobes/list`, and runs a synthetic workload through a
+manually-allowed cgroup. See the script header for a known, kernel-independent
+gap in `--cgroup-path`'s userspace recording that this uncovered.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)

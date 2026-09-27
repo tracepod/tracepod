@@ -1,0 +1,81 @@
+# al2023-kernel.yaml — Amazon Linux 2023 kernel-compatibility VM.
+#
+# Purpose: EKS's default node OS is Amazon Linux 2023 (kernels 6.1 / 6.12 /
+# 6.18 depending on AMI release), but Tracepod's sensor is only exercised on
+# Ubuntu locally (ebpf-dev.yaml, kernel 6.8) and in CI (GitHub runners,
+# kernels 6.8 / 6.17). This VM lets us check kprobe attach + BTF/CO-RE
+# compatibility against AL2023's own kernel build, locally and repeatably,
+# without needing an EKS node.
+#
+# This is a bare kernel-compat rig, not a Kubernetes/containerd dev box:
+# no NRI, no kubelet — see hack/kernel-compat.sh, which is expected to
+# report NRI unreachable via hack/discovery-probe.sh (that's fine; there is
+# no containerd configured here at all).
+#
+# Usage:
+#   limactl start --tty=false --name=al2023-kernel infra/lima/al2023-kernel.yaml
+#   limactl copy hack/kernel-compat.sh al2023-kernel:/tmp/kernel-compat.sh
+#   limactl copy hack/discovery-probe.sh al2023-kernel:/tmp/discovery-probe.sh
+#   limactl shell al2023-kernel -- sudo bash /tmp/kernel-compat.sh
+#   limactl stop al2023-kernel   # leaves the VM in place for reuse
+#
+# The AL2023 KVM qcow2 uses cloud-init's NoCloud datasource. On EC2 that
+# datasource creates the "ec2-user" account, but Lima never uses the image's
+# own default-user config: Lima writes its own cidata NoCloud user-data,
+# which creates a user matching your host username (via SSH key injection)
+# regardless of guest OS. So no ec2-user workaround is needed here — cloud-init
+# just needs to be present and NoCloud-capable, which the AL2023 KVM image is.
+
+vmType: "qemu"
+arch: "aarch64"
+memory: "4GiB"
+cpus: 2
+
+images:
+  # Pinned release + digest (AL2023 LTS 2023.12, build 2023.12.20260918.0,
+  # kernel-6.1). No "latest/" fallback — a moving target would defeat the
+  # point of a kernel-compat pin. To test kernel 6.12/6.18 instead, AL2023
+  # ships them as optional kernel-6.12 packages (`dnf install kernel6.12`)
+  # on top of this same base image; that is a follow-up, not done here.
+  - location: "https://cdn.amazonlinux.com/al2023/os-images/2023.12.20260918.0/kvm-arm64/al2023-kvm-2023.12.20260918.0-kernel-6.1-arm64.xfs.gpt.qcow2"
+    arch: "aarch64"
+    digest: "sha256:4085733eaf8ecf4cb9575cb384afdf2053aaf6dc3507adbe9c9472070ac54231"
+
+# No host mounts: this VM only needs files copied in via `limactl copy`
+# (the test script + the released sensor tarball). Avoids reverse-sshfs,
+# which needs an sshfs client in the guest that AL2023 may not ship.
+mounts: []
+
+# Skip Lima's built-in containerd/nerdctl provisioning — this VM is a bare
+# kernel-compat rig, not a container runtime host, and discovery-probe.sh is
+# expected to report NRI unreachable (no containerd here at all).
+containerd:
+  system: false
+  user: false
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux
+      dnf install -y tar curl-minimal || dnf install -y tar curl
+      # bpftool package may not exist in all AL2023 repos; don't fail the
+      # whole provision over an optional diagnostic tool.
+      dnf install -y bpftool || echo "bpftool unavailable — continuing without it"
+
+probes:
+  - description: "kernel is 6.1.x (AL2023 LTS base build)"
+    script: |
+      #!/bin/bash
+      uname -r | grep -qE '^6\.1\.'
+    hint: "Unexpected kernel version — check the AL2023 kvm-arm64 image pin"
+  - description: "BTF vmlinux present"
+    script: |
+      #!/bin/bash
+      test -r /sys/kernel/btf/vmlinux
+    hint: "No BTF — CO-RE BPF programs cannot load; check kernel config CONFIG_DEBUG_INFO_BTF"
+  - description: "cgroup v2 mounted"
+    script: |
+      #!/bin/bash
+      stat -f -c %T /sys/fs/cgroup | grep -q cgroup2fs
+    hint: "AL2023 should default to cgroup v2 (systemd.unified_cgroup_hierarchy) — check boot cmdline"
