@@ -28,8 +28,18 @@
 //	                         (e.g. http://tracepod-controller.tracepod.svc:8080)
 //	--node-name <name>       node name included in controller POSTs; set automatically
 //	                         via the Downward API in DaemonSet deployments
-//	--cgroup-path <path>     manually add a cgroup to the allowlist (debug utility;
-//	                         useful when NRI is unavailable, e.g. tracing your own shell)
+//	--cgroup-path <path>     manually add a cgroup to the allowlist and start a
+//	                         userspace aggregator for it (debug/standalone utility;
+//	                         useful when NRI is unavailable, e.g. tracing your own
+//	                         shell). The resulting profile is written under
+//	                         --profile-dir like any other; it is flushed on
+//	                         SIGTERM/SIGINT (never "stopped", so the flush is
+//	                         always non-terminal), and its adoption provenance is
+//	                         deliberately left unreported (untrusted) since the
+//	                         sensor cannot prove the cgroup was empty at attach.
+//	                         With --controller-url and no pod metadata, the
+//	                         profile is not POSTed — this flag is a standalone/
+//	                         debug mode, not a K8s adoption path.
 //	--verbose                print every file-open event to stderr (very noisy;
 //	                         for debugging only)
 //	--version                print version and exit
@@ -93,18 +103,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "sensor: events ring buffer overridden to %d bytes (induced-loss test mode)\n", *ringbufBytes)
 	}
 
-	// --cgroup-path: manually allow a single cgroup, bypassing NRI.
-	if *cgroupPath != "" {
-		id, err := container.CgroupIDFromPath(*cgroupPath)
-		if err != nil {
-			log.Fatalf("resolve --cgroup-path %q: %v", *cgroupPath, err)
-		}
-		if err := p.AllowCgroup(id); err != nil {
-			log.Fatalf("allow cgroup %d: %v", id, err)
-		}
-		fmt.Fprintf(os.Stderr, "manual cgroup: path=%s id=%d\n", *cgroupPath, id)
-	}
-
 	// K8s mode: create a workload resolver when --controller-url is set.
 	var resolver sensor.WorkloadResolver
 	if *controllerURL != "" {
@@ -125,6 +123,17 @@ func main() {
 	// router.ReadLoss(), which reads the consumer's decode counter. Wire it now.
 	c := ringbuf.New(p.Reader(), router.handle)
 	router.consumer = c
+
+	// --cgroup-path: manually allow a single cgroup, bypassing NRI. Must run
+	// after router.consumer is set (see comment above): registerManualCgroup
+	// creates an aggregator via router.onContainerStart, which captures a
+	// loss baseline through router.ReadLoss() — that reads the consumer's
+	// decode counter, so the consumer must already exist.
+	if *cgroupPath != "" {
+		if _, err := registerManualCgroup(router, p, *cgroupPath); err != nil {
+			log.Fatalf("%v", err)
+		}
+	}
 
 	// Connect the NRI plugin so containerd can push container lifecycle events.
 	// If NRI is unavailable we warn rather than fatal — the sensor still runs
@@ -285,6 +294,65 @@ func (r *cgroupRouter) bpfLossStats() (map[string]uint64, error) {
 		return nil, fmt.Errorf("no probe")
 	}
 	return r.probe.LossStats()
+}
+
+// manualContainerID builds the synthetic container ID for a manually-added
+// cgroup (--cgroup-path). onContainerStart's tracking log line does
+// info.ContainerID[:12] — real container IDs are 64-hex-char digests, so that
+// slice is always safe there, but a bare "manual-<id>" is not: a small cgroup
+// ID (e.g. inode 5053 on a freshly booted node) yields "manual-5053", only 11
+// bytes, and panics that slice. Zero-padding the numeric part to 5 digits
+// makes the "manual-" (7 bytes) + digits (≥5 bytes) result at least 12 bytes
+// for any cgroup ID; wider IDs simply produce a longer (still safe) string.
+// Digits and a literal dash are filesystem-safe on every target OS, so the
+// result is also always safe as a --profile-dir/<id> directory name.
+func manualContainerID(cgroupID uint64) string {
+	return fmt.Sprintf("manual-%05d", cgroupID)
+}
+
+// registerManualCgroup implements --cgroup-path: it resolves path to a cgroup
+// ID, registers a userspace aggregator for it via r.onContainerStart, and only
+// then allowlists the cgroup in-kernel via allower.AllowCgroup. It returns the
+// resolved cgroup ID.
+//
+// Ordering matters and mirrors the existing NRI invariant (internal/container/
+// nri.go, Plugin.adopt): the kprobes start emitting for a cgroup the instant
+// AllowCgroup returns, so the aggregator must already exist to receive them —
+// otherwise those first events have nowhere to route and are counted as
+// untracked_cgroup hard loss (schema v3), exactly the bug this function fixes.
+//
+// The synthetic container ID (manualContainerID) becomes the
+// --profile-dir/<id>/files.json directory name, so it must be filesystem-safe;
+// see manualContainerID's doc comment for why it is zero-padded. AdoptionMode
+// is deliberately left at its zero value
+// (AdoptionUnknown): a manually-added cgroup gives no start-anchoring
+// guarantee — the sensor cannot know whether a process was already running in
+// it before AllowCgroup, unlike the NRI StartContainer hook, which attaches
+// before the runtime execs the entrypoint. ProcessAlreadyRunning is set to true
+// for the same reason: it is the conservative (toward-false) choice for
+// ProcessStartObserved, since we cannot prove the cgroup was empty at attach.
+func registerManualCgroup(r *cgroupRouter, allower container.CgroupAllower, path string) (uint64, error) {
+	id, err := container.CgroupIDFromPath(path)
+	if err != nil {
+		return 0, fmt.Errorf("resolve --cgroup-path %q: %w", path, err)
+	}
+
+	r.onContainerStart(container.StartInfo{
+		ContainerID:           manualContainerID(id),
+		CgroupID:              id,
+		CgroupFSPath:          path,
+		AttachTime:            time.Now().UTC(),
+		ProcessAlreadyRunning: true,
+		// AdoptionMode intentionally left unset (AdoptionUnknown) — see doc comment.
+		Pod: container.PodMeta{},
+	})
+
+	if err := allower.AllowCgroup(id); err != nil {
+		return id, fmt.Errorf("allow cgroup %d: %w", id, err)
+	}
+
+	fmt.Fprintf(os.Stderr, "manual cgroup: path=%s id=%d\n", path, id)
+	return id, nil
 }
 
 // onContainerStart is called by the NRI plugin when a container's cgroup ID

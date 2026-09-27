@@ -13,6 +13,15 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
   Azure Linux 3.0 images ship containerd 2.x with NRI on; AKS Ubuntu 22.04
   (containerd 1.7) and older images still need the config change.
 
+### Fixed
+
+- **`--cgroup-path` recorded nothing** — the manual debug mode allowlisted the
+  cgroup in-kernel but never created a userspace aggregator, so every event was
+  dropped (and counted as `untracked_cgroup` loss) before recording or
+  `--verbose` printing. It now registers an aggregator before allowlisting,
+  mirroring the NRI path; manual profiles are flushed on shutdown, non-terminal
+  and with unreported adoption provenance.
+
 ## [0.2.1] - 2026-09-27
 
 ### Added
