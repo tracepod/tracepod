@@ -143,7 +143,7 @@ Current default node images, as of **September 2026**:
 
 | Node image | containerd version | NRI default | Source |
 |---|---|---|---|
-| EKS Amazon Linux 2023 (AMI `v20260923`, 2026-09-24) | 2.2.7 | **On** — `nodeadm`'s containerd-v2 config sets `disable = false`, `socket_path = '/var/run/nri/nri.sock'` | [`nodeadm/test/e2e/cases/containerdv2-config/expected-containerd-configv2.toml`](https://github.com/awslabs/amazon-eks-ami/blob/main/nodeadm/test/e2e/cases/containerdv2-config/expected-containerd-configv2.toml) |
+| EKS Amazon Linux 2023 (AMI `v20260923`, 2026-09-24) | 2.2.7 | **On** — `nodeadm`'s expected containerd-v2 config (its e2e test fixture) sets `disable = false`, `socket_path = '/var/run/nri/nri.sock'` | [`nodeadm/test/e2e/cases/containerdv2-config/expected-containerd-configv2.toml`](https://github.com/awslabs/amazon-eks-ami/blob/main/nodeadm/test/e2e/cases/containerdv2-config/expected-containerd-configv2.toml) |
 | AKS Ubuntu 24.04 (`r2404`) | 2.3.5 | Expected **on** (containerd 2.x default; AgentBaker's own templates carry no NRI override) | [`parts/common/components.json`](https://github.com/Azure/AgentBaker/blob/master/parts/common/components.json) |
 | AKS Azure Linux 3.0 | 2.2.4 | Expected **on** (containerd 2.x default; node config not independently inspected) | [`parts/common/components.json`](https://github.com/Azure/AgentBaker/blob/master/parts/common/components.json) |
 | AKS Ubuntu 22.04 (`r2204`) | 1.7.35 | **Off** | [`parts/common/components.json`](https://github.com/Azure/AgentBaker/blob/master/parts/common/components.json) |
@@ -151,8 +151,7 @@ Current default node images, as of **September 2026**:
 | containerd upstream default | 2.0+ | **On** by design | [containerd 2.0 release notes, "NRI is now enabled by default"](https://github.com/containerd/containerd/blob/main/docs/containerd-2.0.md) |
 
 This table reflects vendor images as of September 2026 — node images change on
-their own release cadence (AL2023 AMIs ship roughly weekly; AKS images track
-AKS release trains). Don't rely on this table alone: run
+their own release cadence. Don't rely on this table alone: run
 `hack/discovery-probe.sh` against the real node before deploying.
 
 ### How to check
