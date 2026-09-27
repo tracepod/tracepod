@@ -6,6 +6,16 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-27
+
+### Added
+
+- **Amazon Linux 2023 kernel-compatibility VM** — `infra/lima/al2023-kernel.yaml`
+  provisions a bare AL2023 VM (kernel 6.1, arm64) and `hack/kernel-compat.sh`
+  verifies the sensor's BPF programs load and its kprobes attach and fire on
+  AL2023's kernel build — EKS's default node OS, which local dev and CI had
+  only ever tested against Ubuntu kernels (6.8, 6.17).
+
 ### Changed
 
 - **NRI limitation docs corrected** — `KNOWN-LIMITATIONS.md` §0.6 now keys NRI
@@ -247,7 +257,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 - `schema_version` changed type from string (`"1"`) to integer (`2`). Consumers
   must treat a string `schema_version` (or its absence) as a legacy v1 profile.
 
-[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/tracepod/tracepod/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/tracepod/tracepod/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tracepod/tracepod/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/tracepod/tracepod/compare/v0.1.1...v0.1.2
