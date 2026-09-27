@@ -354,8 +354,9 @@ limactl stop al2023-kernel   # leaves the VM in place for reuse
 preconditions, confirms every kprobe symbol exists, confirms the sensor
 attaches all of them (fatal `open probe:` error otherwise), cross-checks
 `/sys/kernel/debug/kprobes/list`, and runs a synthetic workload through a
-manually-allowed cgroup. See the script header for a known, kernel-independent
-gap in `--cgroup-path`'s userspace recording that this uncovered.
+manually-allowed cgroup. Since v0.2.2 it also verifies end to end that
+`--cgroup-path` records opens and execs for that cgroup (the userspace
+recording gap it originally uncovered was fixed in v0.2.2).
 
 ## Documentation
 
