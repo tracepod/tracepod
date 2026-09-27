@@ -6,6 +6,13 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **NRI limitation docs corrected** — `KNOWN-LIMITATIONS.md` §0.6 now keys NRI
+  availability on containerd version: current EKS AL2023, AKS Ubuntu 24.04 and
+  Azure Linux 3.0 images ship containerd 2.x with NRI on; AKS Ubuntu 22.04
+  (containerd 1.7) and older images still need the config change.
+
 ## [0.2.1] - 2026-09-27
 
 ### Added
