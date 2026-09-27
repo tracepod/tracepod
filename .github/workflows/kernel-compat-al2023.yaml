@@ -1,0 +1,218 @@
+name: Kernel compat (Amazon Linux 2023, x86_64, KVM)
+
+# Boots a real Amazon Linux 2023 VM under QEMU/KVM on the GitHub-hosted
+# ubuntu-latest runner and runs hack/kernel-compat.sh against a sensor binary
+# built FROM THE COMMIT under test. AL2023 is EKS's default node OS; this is
+# the x86_64 counterpart to the arm64 Lima rig at infra/lima/al2023-kernel.yaml
+# (which is run by hand locally). ubuntu-latest exposes /dev/kvm since the
+# runner update of 2024-01-17 / GA'd 2024-04-02 (see PR description / report
+# for the changelog citation) — no nested-virtualization workaround needed,
+# just a udev rule to make the device group-writable for the runner user.
+
+on:
+  pull_request:
+    paths:
+      - "cmd/sensor/**"
+      - "internal/probe/**"
+      - "internal/container/**"
+      - "internal/ringbuf/**"
+      - "hack/kernel-compat.sh"
+      - ".github/workflows/kernel-compat-al2023.yaml"
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+defaults:
+  run:
+    # Explicit `bash`, not the default `sh` semantics: we pipe SSH/QEMU
+    # output through `tee` in a couple of places, and without `pipefail`
+    # a failing remote command would be masked by a successful `tee`.
+    shell: bash
+
+env:
+  AL2023_VERSION: "2023.12.20260918.0"
+  AL2023_IMAGE_URL: "https://cdn.amazonlinux.com/al2023/os-images/2023.12.20260918.0/kvm/al2023-kvm-2023.12.20260918.0-kernel-6.1-x86_64.xfs.gpt.qcow2"
+  AL2023_IMAGE_SHA256: "163ef5327e8ef4c221ba59173bd765afc60e31fc5c224cb0982498c5c3f970ee"
+
+jobs:
+  kernel-compat-al2023:
+    name: kernel-compat (AL2023 6.1, x86_64, KVM)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── KVM access ──────────────────────────────────────────────────────────
+      # ubuntu-latest runners expose /dev/kvm as a hardware feature (nested
+      # virtualization on the underlying Azure host) since GitHub rolled this
+      # out to standard (non-large) Linux runners; see PR description for the
+      # GitHub Changelog citation. The device itself is present but only
+      # root/kvm-group-writable by default — this udev rule (the one GitHub's
+      # own docs recommend for Android-emulator jobs) makes it usable without
+      # a reboot or new login session.
+      - name: Enable /dev/kvm access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          echo "KVM device present and accessible:"
+          ls -l /dev/kvm
+
+      - name: Install QEMU + cloud-init seed tooling
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils cloud-image-utils ovmf openssh-client
+
+      # ── Build the sensor FROM THIS COMMIT, the same way release.yaml does ───
+      - name: Build sensor binary (amd64) via Dockerfile.sensor
+        run: |
+          COMMIT=${GITHUB_SHA::8}
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION=ci-${COMMIT} \
+            --build-arg COMMIT=${COMMIT} \
+            -t tp-sensor:kernel-compat-ci \
+            -f Dockerfile.sensor \
+            .
+          cid=$(docker create tp-sensor:kernel-compat-ci)
+          docker cp "$cid:/usr/local/bin/sensor" ./sensor
+          docker rm "$cid" >/dev/null
+          chmod +x ./sensor
+          file ./sensor
+          ./sensor --version || true
+
+      # ── Download + verify the pinned AL2023 x86_64 KVM image ────────────────
+      # Pinned by exact versioned URL + SHA256 (from the published SHA256SUMS
+      # at the same path) rather than the "latest/" alias, so this workflow
+      # doesn't silently start testing a different kernel build.
+      - name: Download AL2023 KVM image
+        run: |
+          curl -fsSL -o al2023-base.qcow2 "$AL2023_IMAGE_URL"
+          echo "${AL2023_IMAGE_SHA256}  al2023-base.qcow2" | sha256sum -c -
+
+      # ── cloud-init NoCloud seed ──────────────────────────────────────────────
+      # AL2023's KVM image boots with cloud-init's NoCloud datasource. On real
+      # EC2, cloud-init's own AL2023 default-user config creates "ec2-user";
+      # NoCloud honors the same default_user unless user-data overrides it, so
+      # an SSH key under the top-level `ssh_authorized_keys` key lands on
+      # ec2-user. We also grant it passwordless sudo explicitly for clarity.
+      - name: Build cloud-init seed
+        run: |
+          ssh-keygen -t ed25519 -N "" -f ./al2023-key -C kernel-compat-ci
+
+          cat > meta-data <<EOF
+          instance-id: kernel-compat-ci
+          local-hostname: al2023-kernel-compat
+          EOF
+
+          cat > user-data <<EOF
+          #cloud-config
+          ssh_authorized_keys:
+            - $(cat ./al2023-key.pub)
+          users:
+            - default
+          system_info:
+            default_user:
+              sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+          EOF
+
+          cloud-localds seed.iso user-data meta-data
+
+      # ── Boot the VM ───────────────────────────────────────────────────────
+      # -snapshot: writes go to an ephemeral overlay, never touching the
+      # downloaded base image (irrelevant for a one-shot CI job, but keeps the
+      # semantics identical to the reusable local Lima rig this mirrors).
+      # -cpu host: passes through the runner's real CPU features; the default
+      # qemu64 model can be missing flags the AL2023 kernel build expects.
+      - name: Boot AL2023 under QEMU/KVM
+        run: |
+          qemu-system-x86_64 \
+            -enable-kvm -cpu host -smp 2 -m 4096 \
+            -drive file=al2023-base.qcow2,if=virtio,format=qcow2,snapshot=on \
+            -drive file=seed.iso,if=virtio,format=raw \
+            -netdev user,id=n0,hostfwd=tcp::2222-:22 \
+            -device virtio-net-pci,netdev=n0 \
+            -display none \
+            -serial file:${{ runner.temp }}/console.log \
+            -pidfile ${{ runner.temp }}/qemu.pid \
+            -daemonize
+          sleep 2
+          echo "QEMU pid: $(cat ${{ runner.temp }}/qemu.pid)"
+
+      - name: Wait for SSH
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -i ./al2023-key -p 2222"
+          deadline=$((SECONDS + 300))
+          until ssh $SSH_OPTS ec2-user@127.0.0.1 true 2>/dev/null; do
+            if ! kill -0 "$(cat ${{ runner.temp }}/qemu.pid)" 2>/dev/null; then
+              echo "QEMU process died before SSH came up — console log follows:"
+              cat ${{ runner.temp }}/console.log || true
+              exit 1
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for SSH — console log follows:"
+              cat ${{ runner.temp }}/console.log || true
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "SSH is up."
+
+      - name: Wait for cloud-init to finish
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          ssh $SSH_OPTS ec2-user@127.0.0.1 "sudo cloud-init status --wait"
+
+      - name: Install bpftool in the guest (best-effort diagnostic tool)
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          ssh $SSH_OPTS ec2-user@127.0.0.1 \
+            "sudo dnf install -y bpftool || echo 'bpftool unavailable — continuing without it'"
+
+      - name: Copy sensor + scripts into the guest
+        run: |
+          SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -P 2222"
+          scp $SCP_OPTS ./sensor ec2-user@127.0.0.1:/tmp/sensor
+          scp $SCP_OPTS hack/kernel-compat.sh ec2-user@127.0.0.1:/tmp/kernel-compat.sh
+          scp $SCP_OPTS hack/discovery-probe.sh ec2-user@127.0.0.1:/tmp/discovery-probe.sh
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          ssh $SSH_OPTS ec2-user@127.0.0.1 "chmod +x /tmp/sensor /tmp/kernel-compat.sh /tmp/discovery-probe.sh"
+
+      - name: Run hack/kernel-compat.sh in the guest
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          set -o pipefail
+          ssh $SSH_OPTS ec2-user@127.0.0.1 \
+            "sudo env SENSOR_BIN=/tmp/sensor bash /tmp/kernel-compat.sh" \
+            | tee ${{ runner.temp }}/kernel-compat-output.log
+
+      - name: Collect cloud-init log (debug aid)
+        if: always()
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          ssh $SSH_OPTS ec2-user@127.0.0.1 "sudo cat /var/log/cloud-init-output.log" \
+            > ${{ runner.temp }}/cloud-init-output.log 2>&1 || true
+
+      - name: Shut down QEMU
+        if: always()
+        run: |
+          if [ -f "${{ runner.temp }}/qemu.pid" ]; then
+            kill "$(cat ${{ runner.temp }}/qemu.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-compat-al2023-artifacts
+          path: |
+            ${{ runner.temp }}/console.log
+            ${{ runner.temp }}/kernel-compat-output.log
+            ${{ runner.temp }}/cloud-init-output.log
+          if-no-files-found: warn
+          retention-days: 14
