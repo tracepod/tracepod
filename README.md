@@ -358,6 +358,51 @@ manually-allowed cgroup. Since v0.2.2 it also verifies end to end that
 `--cgroup-path` records opens and execs for that cgroup (the userspace
 recording gap it originally uncovered was fixed in v0.2.2).
 
+`hack/kernel-compat.sh` only exercises BPF load/attach — it never runs a
+containerd/kubelet/kind stack, so it can't catch a bug in NRI adoption, the
+harden build, or sandbox validation. `infra/lima/al2023-e2e.yaml` provisions
+a second AL2023 VM sized and provisioned like the Ubuntu `k8s-dev` VM (Docker,
+kind, kubectl, helm, Go, syft) so the FULL `hack/e2e/run-e2e.sh` pipeline
+(sensor DaemonSet, harden build, sandbox validation) can run against AL2023's
+own kernel build, on each of EKS's three shipping kernels:
+
+```bash
+limactl start --tty=false --name=al2023-e2e infra/lima/al2023-e2e.yaml
+hack/e2e/run-e2e-al2023.sh --kernel 6.1 --ref v0.2.2   # kernel switch is manual — see below
+limactl stop al2023-e2e   # leaves the VM in place for reuse
+```
+
+`hack/e2e/run-e2e-al2023.sh` archives the given `--ref` with `git archive`,
+ships it into the VM (no host mounts on this image), and runs the unmodified
+released `run-e2e.sh` from that ref — except that the wrapper always overlays
+the CURRENT WORKING TREE's `hack/e2e/run-e2e.sh` on top before running it
+(sha256-verified in the wrapper's own output), so a harness fix in this repo
+is exercised even when `--ref` pins an older tag. To switch kernels, install
+with `dnf install -y kernel6.<NN>`, `grubby --set-default`, then
+`limactl stop al2023-e2e && limactl start al2023-e2e`.
+
+**2026-09-29 results** (worktree harness fix below, product code pinned at
+tag `v0.2.2`):
+
+| Kernel | Full e2e (`run-e2e.sh`) | `hack/kernel-compat.sh` |
+|--------|--------------------------|--------------------------|
+| 6.1.186-228.376.amzn2023  | PASS | ALL CHECKS PASSED |
+| 6.12.103-129.197.amzn2023 | PASS | ALL CHECKS PASSED |
+| 6.18.48-109.150.amzn2023  | PASS | ALL CHECKS PASSED |
+
+The first two full-e2e attempts on this VM (6.1, 6.12) failed at
+`coverage.adoption_mode=nri-sync, want nri-start`: `run-e2e.sh` had no wait
+for the kind node to be Ready, and `kubectl rollout status daemonset/...`
+returns success vacuously when the DaemonSet has zero desired pods — so on
+this VM's nested-QEMU boot timing, nginx could start (and get adopted via an
+NRI `Synchronize` scan instead of `StartContainer`) before the sensor was even
+scheduled. This was a harness race, not a product bug: `nri-sync` was the
+factually correct label for what happened. Fixed in `hack/e2e/run-e2e.sh` by
+adding three explicit waits before Phase 4 (node Ready, DaemonSet
+desired/ready count, sensor's "NRI connected" log line) — see the script's
+inline comments for detail. All three AL2023 kernels above ran clean with the
+fix.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)
