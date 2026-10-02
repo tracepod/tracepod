@@ -1,0 +1,452 @@
+name: E2E (Amazon Linux 2023, x86_64, KVM)
+
+# Runs the FULL end-to-end test (hack/e2e/run-e2e.sh — sensor DaemonSet via
+# Helm into kind with NRI enabled, nginx profiled, harden build, removal
+# manifest, hardened-image validation, schema asserts) inside a real Amazon
+# Linux 2023 x86_64 VM under QEMU/KVM, on each of EKS's three shipping
+# kernels (6.1 / 6.12 / 6.18). This is the x86_64-CI counterpart to the
+# arm64 Lima rig at infra/lima/al2023-e2e.yaml (which proved all three
+# kernels PASS — see README "Kernel compatibility (Amazon Linux 2023)"),
+# and it goes further than kernel-compat-al2023.yaml (which only exercises
+# BPF load/attach, not the whole product).
+#
+# All three kernel legs run on every trigger, including pull_request — they
+# are each meant to become a REQUIRED check, so none of them carries a paths
+# filter (a path-filtered required check blocks unrelated PRs forever).
+# Matrix jobs run in parallel, so PR wall time is roughly bounded by the
+# slowest leg (6.12/6.18 pay for an extra kernel install + guest reboot;
+# 6.1 does not).
+#
+# Provisioning note: this workflow's guest provisioning (docker, kind,
+# kubectl, helm, go, jq, syft) is NOT factored into a shared script with
+# infra/lima/al2023-e2e.yaml. That Lima config is an arm64, no-host-mount,
+# locally-provisioned VM that this environment cannot boot or exercise —
+# changing it here would ship untested. The two provisioning recipes are
+# duplicated (CI: x86_64, ssh-driven, ami pinned image, package versions
+# matched to .github/workflows/e2e.yaml; Lima: arm64, limactl provision
+# stanzas). See the PR description for the explicit call to leave
+# al2023-e2e.yaml alone.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  schedule:
+    # Nightly at 07:00 UTC — catches drift between releases (dependency
+    # bumps, AL2023 repo content changes) that no single PR would trigger.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Cancel superseded runs on the same PR; never cancel a push-to-main, tag,
+  # nightly, or manual-dispatch run (those are one-shot and the ref isn't
+  # being superseded by a newer commit in the same PR).
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    # See kernel-compat-al2023.yaml for why this is needed: `shell: bash`
+    # (not the unspecified default) adds `pipefail`, required since several
+    # steps below pipe SSH output through `tee`.
+    shell: bash
+
+env:
+  # Same pinned AL2023 x86_64 KVM image (base kernel 6.1) as
+  # kernel-compat-al2023.yaml — exact versioned URL + published SHA256, not
+  # the "latest/" alias, so this workflow doesn't silently start testing a
+  # different kernel build. 6.12/6.18 are installed on top of this same
+  # base image via dnf, exactly as proven locally (see README).
+  AL2023_IMAGE_URL: "https://cdn.amazonlinux.com/al2023/os-images/2023.12.20260918.0/kvm/al2023-kvm-2023.12.20260918.0-kernel-6.1-x86_64.xfs.gpt.qcow2"
+  AL2023_IMAGE_SHA256: "163ef5327e8ef4c221ba59173bd765afc60e31fc5c224cb0982498c5c3f970ee"
+  KIND_VERSION: "v0.27.0" # matches e2e.yaml / infra/lima/*.yaml
+  GO_VERSION: "1.26.0" # matches go.mod (go 1.26) / Dockerfile.sensor default
+
+jobs:
+  e2e:
+    # This name (with the matrix kernel interpolated) is the required-check
+    # name — keep the format stable: "e2e (AL2023 <kernel>, x86_64, KVM)".
+    name: e2e (AL2023 ${{ matrix.kernel }}, x86_64, KVM)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false # one kernel's failure must not hide the other two
+      matrix:
+        include:
+          - kernel: "6.1"
+            kernel_pkg: "" # base image kernel — no extra install/reboot
+          - kernel: "6.12"
+            kernel_pkg: "kernel6.12"
+          - kernel: "6.18"
+            kernel_pkg: "kernel6.18"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── KVM access ──────────────────────────────────────────────────────
+      - name: Enable /dev/kvm access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm && test -r /dev/kvm && test -w /dev/kvm
+          ls -l /dev/kvm
+
+      - name: Install QEMU + cloud-init seed tooling
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils cloud-image-utils ovmf openssh-client jq
+
+      # ── Heavy artefacts built ON THE RUNNER, shipped into the VM ──────────
+      # Building the sensor here (not in-guest) avoids needing clang/bpftool/
+      # BTF inside AL2023 at all, and is far faster than a cold in-guest
+      # build. hack/e2e/run-e2e.sh's Phase 1 skips its own build when the
+      # tracepod-sensor:e2e image already exists.
+      - name: Build sensor image (amd64) via Dockerfile.sensor
+        run: |
+          docker build --platform linux/amd64 \
+            --build-arg VERSION=ci-${GITHUB_SHA::8} \
+            --build-arg COMMIT=${GITHUB_SHA::8} \
+            --build-arg GO_VERSION=${GO_VERSION} \
+            -t tracepod-sensor:e2e \
+            -f Dockerfile.sensor .
+
+      - name: Pre-pull workload + registry images
+        run: |
+          docker pull --quiet nginx:alpine
+          docker pull --quiet registry:2
+
+      - name: Save images for guest docker load
+        run: docker save tracepod-sensor:e2e nginx:alpine registry:2 -o images.tar
+
+      # ── Pinned AL2023 base image (cached across the 3 matrix legs) ───────
+      - name: Cache AL2023 base image
+        id: al2023-cache
+        uses: actions/cache@v4
+        with:
+          path: al2023-base.qcow2
+          key: al2023-kvm-x86_64-${{ env.AL2023_IMAGE_SHA256 }}
+
+      - name: Download AL2023 KVM image
+        if: steps.al2023-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o al2023-base.qcow2 "$AL2023_IMAGE_URL"
+          echo "${AL2023_IMAGE_SHA256}  al2023-base.qcow2" | sha256sum -c -
+
+      - name: Verify cached AL2023 image checksum
+        if: steps.al2023-cache.outputs.cache-hit == 'true'
+        run: echo "${AL2023_IMAGE_SHA256}  al2023-base.qcow2" | sha256sum -c -
+
+      # ── Resizable overlay ──────────────────────────────────────────────
+      # A qcow2 overlay backed by the (read-only, cache-shared) base image.
+      # Giving the overlay a larger virtual size than the backing file lets
+      # cloud-init's growpart/resizefs modules (present on the AL2023 cloud
+      # image by default) grow the guest root filesystem to fill it — kind
+      # needs real headroom for node image layers + container storage.
+      - name: Create 40G overlay disk
+        run: |
+          qemu-img create -f qcow2 -F qcow2 -b al2023-base.qcow2 overlay.qcow2 40G
+          echo "─── runner disk usage ───"
+          df -h .
+
+      # ── cloud-init NoCloud seed ────────────────────────────────────────
+      - name: Build cloud-init seed
+        run: |
+          ssh-keygen -t ed25519 -N "" -f ./al2023-key -C e2e-al2023-ci
+
+          cat > meta-data <<EOF
+          instance-id: e2e-al2023-ci
+          local-hostname: al2023-e2e
+          EOF
+
+          cat > user-data <<EOF
+          #cloud-config
+          ssh_authorized_keys:
+            - $(cat ./al2023-key.pub)
+          users:
+            - default
+          system_info:
+            default_user:
+              sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+          EOF
+
+          cloud-localds seed.iso user-data meta-data
+
+      # ── Boot ─────────────────────────────────────────────────────────────
+      # Give the VM most of the standard runner's 4 vCPU / 16 GB (leave a
+      # little headroom for the runner's own processes doing the SSH/scp
+      # driving). No -snapshot: the overlay IS the writable layer and must
+      # survive a guest-initiated reboot for the 6.12/6.18 legs, so don't
+      # pass -no-reboot either — QEMU must keep running across it.
+      - name: Boot AL2023 under QEMU/KVM
+        run: |
+          qemu-system-x86_64 \
+            -enable-kvm -cpu host -smp 4 -m 12288 \
+            -drive file=overlay.qcow2,if=virtio,format=qcow2 \
+            -drive file=seed.iso,if=virtio,format=raw \
+            -netdev user,id=n0,hostfwd=tcp::2222-:22 \
+            -device virtio-net-pci,netdev=n0 \
+            -display none \
+            -serial file:${{ runner.temp }}/console.log \
+            -pidfile ${{ runner.temp }}/qemu.pid \
+            -daemonize
+          sleep 2
+          echo "QEMU pid: $(cat ${{ runner.temp }}/qemu.pid)"
+
+      - name: Wait for SSH (first boot)
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -i ./al2023-key -p 2222"
+          deadline=$((SECONDS + 300))
+          until ssh $SSH_OPTS ec2-user@127.0.0.1 true 2>/dev/null; do
+            if ! kill -0 "$(cat ${{ runner.temp }}/qemu.pid)" 2>/dev/null; then
+              echo "QEMU process died before SSH came up — console log follows:"
+              cat ${{ runner.temp }}/console.log || true
+              exit 1
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for SSH — console log follows:"
+              cat ${{ runner.temp }}/console.log || true
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "SSH is up."
+
+      - name: Wait for cloud-init to finish
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          ssh $SSH_OPTS ec2-user@127.0.0.1 "sudo cloud-init status --wait"
+
+      - name: Grow root filesystem to fill the 40G overlay
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          ssh $SSH_OPTS ec2-user@127.0.0.1 '
+            set -eux
+            sudo growpart /dev/vda 1 || true
+            sudo xfs_growfs / || sudo resize2fs /dev/vda1 || true
+            df -h /
+          '
+          # Fail loudly rather than limping into kind with a cramped disk —
+          # a silent growfs failure would otherwise only surface later as
+          # kind disk-pressure evictions, far from the real cause.
+          ROOT_KB=$(ssh $SSH_OPTS ec2-user@127.0.0.1 "df -k --output=size / | tail -1")
+          if [ "${ROOT_KB}" -lt $((30 * 1024 * 1024)) ]; then
+            echo "root filesystem did not grow past 30G (got ${ROOT_KB}KB) — growpart/growfs likely failed"
+            exit 1
+          fi
+
+      # ── Guest provisioning (CI-specific; see top-of-file note on why this
+      # duplicates, rather than shares, infra/lima/al2023-e2e.yaml's recipe) ─
+      - name: Provision docker, kind, kubectl, helm, go, jq, syft in the guest
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          ssh $SSH_OPTS ec2-user@127.0.0.1 "
+            set -eux
+
+            sudo dnf install -y tar git jq docker
+            sudo systemctl enable --now docker
+            # World-writable socket: CI-only disposable VM, same trade-off
+            # infra/lima/*.yaml documents (SSH session predates group add).
+            sudo install -d -m 0755 /etc/systemd/system/docker.socket.d
+            printf '[Socket]\nSocketMode=0666\n' | sudo tee /etc/systemd/system/docker.socket.d/ci.conf >/dev/null
+            sudo systemctl daemon-reload
+            sudo systemctl restart docker.socket docker.service
+            sudo usermod -aG docker ec2-user
+
+            curl -fsSL -o /tmp/kind https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64
+            sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+
+            KUBECTL_VERSION=\$(curl -fsSL https://dl.k8s.io/release/stable.txt)
+            curl -fsSL -o /tmp/kubectl \"https://dl.k8s.io/release/\${KUBECTL_VERSION}/bin/linux/amd64/kubectl\"
+            sudo install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash
+
+            curl -fsSL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin
+
+            curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | sudo tar -C /usr/local -xz
+
+            docker version
+            kind version
+            kubectl version --client
+            helm version
+            syft version
+            /usr/local/go/bin/go version
+          "
+
+      # ── Kernel switch (6.12 / 6.18 legs only) ─────────────────────────────
+      - name: Install kernel ${{ matrix.kernel }} and set as default
+        if: matrix.kernel_pkg != ''
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          ssh $SSH_OPTS ec2-user@127.0.0.1 "
+            set -eux
+            sudo dnf install -y ${{ matrix.kernel_pkg }}
+            # Select by version prefix, not mtime (RPM preserves package
+            # build timestamps, so 'newest by mtime' is not 'most recently
+            # installed' — it can even pick a vmlinuz-0-rescue-* file). The
+            # matrix kernel value ('6.12') can't collide with '6.1.*'.
+            NEWEST=\$(ls /boot/vmlinuz-${{ matrix.kernel }}.* | sort -V | tail -1)
+            test -n \"\$NEWEST\"
+            sudo grubby --set-default \"\$NEWEST\"
+            sudo grubby --default-kernel
+          "
+
+      - name: Reboot guest into the new kernel
+        if: matrix.kernel_pkg != ''
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -i ./al2023-key -p 2222"
+          # `reboot` tears down the ssh session (exit 255) — expected.
+          ssh $SSH_OPTS ec2-user@127.0.0.1 "sudo systemctl reboot" || true
+
+          echo "Waiting for the guest to go down..."
+          deadline=$((SECONDS + 60))
+          while ssh $SSH_OPTS ec2-user@127.0.0.1 true 2>/dev/null; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "guest never stopped answering SSH within 60s — proceeding anyway"
+              break
+            fi
+            sleep 2
+          done
+
+          echo "Waiting for SSH to come back after reboot..."
+          deadline=$((SECONDS + 240))
+          until ssh $SSH_OPTS ec2-user@127.0.0.1 true 2>/dev/null; do
+            if ! kill -0 "$(cat ${{ runner.temp }}/qemu.pid)" 2>/dev/null; then
+              echo "QEMU process died during reboot — console log follows:"
+              cat ${{ runner.temp }}/console.log || true
+              exit 1
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for SSH after reboot — console log follows:"
+              cat ${{ runner.temp }}/console.log || true
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Confirm running kernel
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          ACTUAL=$(ssh $SSH_OPTS ec2-user@127.0.0.1 uname -r)
+          echo "Running kernel: ${ACTUAL}"
+          case "$ACTUAL" in
+            "${{ matrix.kernel }}".*) echo "OK: matches expected ${{ matrix.kernel }}.x" ;;
+            *) echo "FAIL: expected kernel ${{ matrix.kernel }}.x, got ${ACTUAL}"; exit 1 ;;
+          esac
+
+      # ── Ship source + images into the guest ───────────────────────────────
+      - name: Archive source
+        run: git archive --format=tar.gz -o src.tar.gz HEAD
+
+      - name: Copy source + images into the guest
+        run: |
+          SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -P 2222"
+          scp $SCP_OPTS src.tar.gz images.tar ec2-user@127.0.0.1:/tmp/
+
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          ssh $SSH_OPTS ec2-user@127.0.0.1 "
+            set -eux
+            rm -rf ~/tracepod-src && mkdir -p ~/tracepod-src
+            tar -xzf /tmp/src.tar.gz -C ~/tracepod-src
+            docker load -i /tmp/images.tar
+          "
+
+      # ── Run the full e2e (foreground, real exit code) ─────────────────
+      # --keep-cluster: the script's own EXIT trap deletes the kind cluster
+      # on failure, which would erase the evidence before we can collect
+      # debug output below. In parallel, side-load nginx:alpine into the
+      # kind node as soon as it exists — same technique as
+      # hack/e2e/run-e2e-al2023.sh's environment workaround (a plain `docker
+      # pull` is fast; the SAME pull via kind's node containerd — the path
+      # kubelet uses — is slow enough to blow run-e2e.sh's hardcoded 60s
+      # Deployment rollout timeout). The side-load loop keeps retrying (not
+      # just once) since the node's containerd can still be coming up on the
+      # first few attempts. `shell: bash` (workflow default) already gives
+      # pipefail, so `tee`'s own exit code doesn't mask run-e2e.sh's.
+      # `timeout 30m` bounds the ssh call itself so a hang still returns
+      # control to this step (and on to debug collection) inside the job's
+      # 45-minute budget.
+      - name: Side-load nginx:alpine + run e2e in the guest (foreground)
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222 -o ServerAliveInterval=30 -o ServerAliveCountMax=10"
+
+          (
+            for _ in $(seq 1 120); do
+              if ssh $SSH_OPTS ec2-user@127.0.0.1 "kind get clusters 2>/dev/null | grep -qx tracepod-e2e" \
+                 && ssh $SSH_OPTS ec2-user@127.0.0.1 "kind load docker-image nginx:alpine --name tracepod-e2e"; then
+                echo "[sideload] nginx:alpine loaded"
+                exit 0
+              fi
+              sleep 3
+            done
+            echo "[sideload] gave up after 6 minutes — Phase 4 may hit the slow-pull timeout"
+          ) &
+          SIDELOAD_PID=$!
+
+          timeout 30m ssh $SSH_OPTS ec2-user@127.0.0.1 \
+            'export PATH=$PATH:/usr/local/go/bin; cd ~/tracepod-src && bash hack/e2e/run-e2e.sh --keep-cluster' \
+            2>&1 | tee "${{ runner.temp }}/e2e.log"
+          E2E_STATUS=${PIPESTATUS[0]}
+
+          wait "$SIDELOAD_PID" || true
+          exit "$E2E_STATUS"
+
+      # ── Debug collection (always, even on failure) ─────────────────────
+      - name: Collect kind/sensor debug info from the guest
+        if: always()
+        run: |
+          echo "─── runner disk usage ───"
+          df -h .
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          ssh $SSH_OPTS ec2-user@127.0.0.1 '
+            export KUBECONFIG=/tmp/tracepod-e2e-kubeconfig.yaml
+            {
+              echo "=== kernel ==="; uname -r
+              echo "=== kind clusters ==="; kind get clusters 2>/dev/null
+              echo "=== nodes ==="; kubectl get nodes -o wide 2>/dev/null
+              echo "=== all pods ==="; kubectl get pods -A 2>/dev/null
+              echo "=== sensor daemonset ==="; kubectl describe daemonset tracepod-sensor 2>/dev/null
+              echo "=== sensor logs ==="; kubectl logs -l app.kubernetes.io/name=tracepod-sensor --tail=-1 2>/dev/null
+              echo "=== profile dir ==="; find /tmp/tracepod-e2e-profiles 2>/dev/null
+              echo "=== removal manifest ==="; cat /tmp/hardened-nginx-oci/removal-manifest.json 2>/dev/null
+            } > ~/debug.log 2>&1
+            kind export logs ~/kind-logs --name tracepod-e2e 2>/dev/null || true
+            tar -czf ~/kind-logs.tar.gz -C ~ kind-logs 2>/dev/null || true
+          ' || true
+
+          SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -P 2222"
+          scp $SCP_OPTS ec2-user@127.0.0.1:~/debug.log ${{ runner.temp }}/debug.log 2>/dev/null || true
+          scp $SCP_OPTS ec2-user@127.0.0.1:~/kind-logs.tar.gz ${{ runner.temp }}/kind-logs.tar.gz 2>/dev/null || true
+
+      - name: Tear down the kind cluster in the guest
+        if: always()
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./al2023-key -p 2222"
+          ssh $SSH_OPTS ec2-user@127.0.0.1 "kind delete cluster --name tracepod-e2e" 2>/dev/null || true
+
+      - name: Shut down QEMU
+        if: always()
+        run: |
+          if [ -f "${{ runner.temp }}/qemu.pid" ]; then
+            kill "$(cat ${{ runner.temp }}/qemu.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-al2023-${{ matrix.kernel }}
+          path: |
+            ${{ runner.temp }}/console.log
+            ${{ runner.temp }}/e2e.log
+            ${{ runner.temp }}/debug.log
+            ${{ runner.temp }}/kind-logs.tar.gz
+          if-no-files-found: warn
+          retention-days: 14
