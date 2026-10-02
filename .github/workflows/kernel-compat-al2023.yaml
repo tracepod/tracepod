@@ -12,24 +12,10 @@ name: Kernel compat (Amazon Linux 2023, x86_64, KVM)
 
 on:
   pull_request:
-    # Widened beyond the sensor/probe/ringbuf paths below: a cilium/ebpf bump
-    # in go.mod is the change most likely to break kprobe attach on another
-    # kernel; manifest/ holds the aggregator that --cgroup-path recording
-    # depends on; Dockerfile.sensor/Makefile are the build inputs this
-    # workflow's sensor image is built from.
-    paths:
-      - "cmd/sensor/**"
-      - "internal/probe/**"
-      - "internal/container/**"
-      - "internal/ringbuf/**"
-      - "hack/kernel-compat.sh"
-      - ".github/workflows/kernel-compat-al2023.yaml"
-      - "go.mod"
-      - "go.sum"
-      - "manifest/**"
-      - "internal/sensor/**"
-      - "Dockerfile.sensor"
-      - "Makefile"
+    # No paths filter: this job is a required status check on main, so it
+    # must run on every PR. A path filter would leave non-matching PRs stuck
+    # on "Expected — Waiting for status to be reported" forever, since GitHub
+    # never reports a status for a workflow that doesn't run.
   push:
     branches: [main]
     tags: ["v*"]
