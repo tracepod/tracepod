@@ -1,0 +1,181 @@
+# al2023-e2e.yaml — Amazon Linux 2023 full end-to-end VM.
+#
+# Purpose: hack/e2e/run-e2e.sh has only ever run on Ubuntu (GitHub
+# ubuntu-latest, and the k8s-dev Lima VM). This VM runs the SAME full e2e
+# pipeline (kind cluster, sensor DaemonSet, harden build, sandbox validation)
+# on top of Amazon Linux 2023's own kernel build — kind shares the host
+# kernel, so this exercises the whole product against AL2023's kernel the way
+# infra/lima/al2023-kernel.yaml exercises just BPF load/attach. AL2023 is
+# EKS's default node OS (kernels 6.1 / 6.12 / 6.18 depending on AMI release).
+#
+# Unlike al2023-kernel.yaml (a bare kernel-compat rig, no containerd/kind),
+# this VM is sized and provisioned like k8s-dev.yaml (Ubuntu) but on AL2023:
+# docker, kind, kubectl, helm, Go, jq, syft — everything run-e2e.sh needs.
+#
+# Usage:
+#   limactl start --tty=false --name=al2023-e2e infra/lima/al2023-e2e.yaml
+#   hack/e2e/run-e2e-al2023.sh              # kernel 6.1 (image default)
+#   hack/e2e/run-e2e-al2023.sh --kernel 6.12
+#   limactl stop al2023-e2e                 # leaves the VM in place for reuse
+#
+# See infra/lima/al2023-kernel.yaml for the image-pin rationale and the note
+# on Lima's own cidata NoCloud user-data (no ec2-user workaround needed).
+
+vmType: "qemu"
+arch: "aarch64"
+memory: "8GiB"
+cpus: 4
+disk: "40GiB"
+
+images:
+  # Same pinned release + digest as al2023-kernel.yaml (AL2023 LTS 2023.12,
+  # build 2023.12.20260918.0, kernel-6.1 default). No "latest/" fallback — a
+  # moving target would defeat the point of a kernel-version-specific run.
+  - location: "https://cdn.amazonlinux.com/al2023/os-images/2023.12.20260918.0/kvm-arm64/al2023-kvm-2023.12.20260918.0-kernel-6.1-arm64.xfs.gpt.qcow2"
+    arch: "aarch64"
+    digest: "sha256:4085733eaf8ecf4cb9575cb384afdf2053aaf6dc3507adbe9c9472070ac54231"
+
+# No host mounts — source goes in via `git archive` + `limactl copy`, same
+# convention as al2023-kernel.yaml (AL2023 may not ship an sshfs client).
+mounts: []
+
+# We install Docker CE ourselves (needed for kind); disable Lima's own
+# containerd provisioning so the two don't collide.
+containerd:
+  system: false
+  user: false
+
+# kind/docker bind a wide range of ephemeral ports; avoid fighting k8s-dev's
+# forwards (9090 etc.) or failing to start over a forward collision.
+portForwards:
+  - guestPortRange: [1, 65535]
+    ignore: true
+  # ...except the e2e local OCI registry, forwarded like k8s-dev.yaml so it
+  # can be inspected from the Mac if needed.
+  - guestPort: 5001
+    hostPort: 5002
+    hostIP: "127.0.0.1"
+
+provision:
+  # Every step here must be safe to re-run: this VM reboots (limactl stop /
+  # start) once per kernel switch, and provisioning runs again on every boot.
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux
+
+      # AL2023 ships curl-minimal; installing curl conflicts with it. Do not
+      # add curl to this list.
+      dnf install -y tar git jq docker || true
+      command -v docker >/dev/null || dnf install -y docker
+
+      systemctl enable --now docker
+
+      # Docker socket world-accessible (mode 0666), same trade-off and same
+      # reason as k8s-dev.yaml: Lima's SSH ControlMaster is established
+      # BEFORE cloud-init's `usermod -aG docker` takes effect for that
+      # session, so relying on group membership alone breaks `limactl shell`
+      # commands that touch the Docker socket for the VM's whole lifetime.
+      # Dev/test VM only.
+      install -d -m 0755 /etc/systemd/system/docker.socket.d
+      printf '[Socket]\nSocketMode=0666\n' \
+        > /etc/systemd/system/docker.socket.d/lima-dev.conf
+      systemctl daemon-reload
+      systemctl restart docker.socket docker.service
+
+      LIMA_USER=$(getent passwd | awk -F: '$6 ~ /^\/home\// {print $1; exit}')
+      if [ -n "$LIMA_USER" ]; then
+        usermod -aG docker "$LIMA_USER"
+      fi
+
+      # kind v0.27.0 — matches .github/workflows/e2e.yaml and k8s-dev.yaml.
+      if ! command -v kind >/dev/null 2>&1; then
+        curl -fsSL -o /usr/local/bin/kind \
+          https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-arm64
+        chmod +x /usr/local/bin/kind
+      fi
+
+      # kubectl — latest stable (not pinned upstream in e2e.yaml either).
+      if ! command -v kubectl >/dev/null 2>&1; then
+        KUBECTL_VERSION=$(curl -fsSL https://dl.k8s.io/release/stable.txt)
+        curl -fsSL -o /usr/local/bin/kubectl \
+          "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/arm64/kubectl"
+        chmod +x /usr/local/bin/kubectl
+      fi
+
+      # helm 3 — latest stable, same as k8s-dev.yaml (azure/setup-helm@v4 in
+      # CI is likewise unpinned).
+      if ! command -v helm >/dev/null 2>&1; then
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      fi
+
+      # syft — required by 'harden build' for the removal manifest / SBOM
+      # (hardener/sbom.go, hardener/removal.go); CI installs it the same way.
+      if ! command -v syft >/dev/null 2>&1; then
+        curl -fsSL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+          | sh -s -- -b /usr/local/bin
+      fi
+
+      # bpftool — optional diagnostic tool used by hack/kernel-compat.sh; not
+      # fatal if the AL2023 repos don't carry it (same as al2023-kernel.yaml).
+      dnf install -y bpftool || echo "bpftool unavailable — continuing without it"
+
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -eux
+
+      # Go — version pinned to go.mod / Dockerfile.sensor's default
+      # (GO_VERSION=1.26.0). Needed to build cmd/harden from source.
+      if [ ! -x /usr/local/go/bin/go ]; then
+        GO_VERSION="1.26.0"
+        curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz" \
+          | sudo tar -C /usr/local -xz
+      fi
+
+      for rc in ~/.bashrc ~/.profile; do
+        grep -q '/usr/local/go/bin' "$rc" 2>/dev/null || \
+          echo 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' >> "$rc"
+      done
+
+probes:
+  - description: "docker runs"
+    script: |
+      #!/bin/bash
+      docker info >/dev/null 2>&1
+    hint: "Docker install/start failed — check 'dnf list docker' and systemctl status docker"
+  - description: "kind present"
+    script: |
+      #!/bin/bash
+      kind version >/dev/null 2>&1
+    hint: "kind install failed"
+  - description: "kubectl present"
+    script: |
+      #!/bin/bash
+      kubectl version --client >/dev/null 2>&1
+    hint: "kubectl install failed"
+  - description: "helm present"
+    script: |
+      #!/bin/bash
+      helm version >/dev/null 2>&1
+    hint: "helm install failed"
+  - description: "Go 1.26 present"
+    script: |
+      #!/bin/bash
+      /usr/local/go/bin/go version 2>&1 | grep -q 'go1\.26'
+    hint: "Go install failed — check GO_VERSION and go.dev/dl for latest 1.26.x"
+  - description: "jq present"
+    script: |
+      #!/bin/bash
+      command -v jq >/dev/null 2>&1
+    hint: "jq install failed"
+  - description: "syft present"
+    script: |
+      #!/bin/bash
+      command -v syft >/dev/null 2>&1
+    hint: "syft install failed — required for harden build's removal manifest"
+  - description: "BTF vmlinux present"
+    script: |
+      #!/bin/bash
+      test -r /sys/kernel/btf/vmlinux
+    hint: "No BTF — CO-RE BPF programs cannot load"

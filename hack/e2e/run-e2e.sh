@@ -120,6 +120,15 @@ fi
 kind get kubeconfig --name "${CLUSTER_NAME}" > /tmp/tracepod-e2e-kubeconfig.yaml
 export KUBECONFIG=/tmp/tracepod-e2e-kubeconfig.yaml
 
+# `kind create cluster` has no built-in readiness gate for the "reusing an
+# existing cluster" branch above, and even on a fresh cluster the API server
+# accepting connections doesn't mean the node is Ready/schedulable yet. On a
+# slow-booting VM (e.g. nested QEMU) this race let the DaemonSet rollout check
+# below pass vacuously (zero desired pods) before the node could schedule
+# anything — see the DaemonSet wait comment for how that manifested.
+info "Waiting for kind node to be Ready (up to 120s)..."
+kubectl wait --for=condition=Ready node --all --timeout=120s
+
 kind load docker-image "${SENSOR_IMAGE}" --name "${CLUSTER_NAME}"
 
 # ── Phase 3: Helm install ───────────────────────────────────────────────────────
@@ -132,8 +141,65 @@ helm upgrade --install tracepod "${REPO_ROOT}/helm/tracepod" \
   --set sensor.image.pullPolicy=Never \
   --set sensor.profileHostPath=/var/lib/tracepod/profiles
 
-info "Waiting for sensor DaemonSet to be ready (up to 120s)..."
+# `kubectl rollout status` on a DaemonSet returns success immediately when
+# status.desiredNumberScheduled is 0 (nothing to roll out yet) — it does NOT
+# wait for the DaemonSet controller to actually observe schedulable nodes and
+# populate .status. On a cluster where the node briefly isn't Ready/schedulable
+# right after creation, this let the script race ahead into Phase 4 before the
+# sensor pod existed at all, so nginx started (and was adopted via NRI
+# Synchronize, i.e. adoption_mode=nri-sync) before the sensor was even
+# scheduled — not a product bug, a harness race. Poll .status directly first
+# so we only call `rollout status` once there's something real to roll out.
+info "Waiting for sensor DaemonSet to be scheduled and ready (up to 120s)..."
+DS_READY=false
+for i in $(seq 1 60); do
+  DESIRED=$(kubectl get daemonset tracepod-sensor -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || true)
+  READY=$(kubectl get daemonset tracepod-sensor -o jsonpath='{.status.numberReady}' 2>/dev/null || true)
+  DESIRED="${DESIRED:-0}"
+  READY="${READY:-0}"
+  if [ "$DESIRED" -ge 1 ] && [ "$READY" -eq "$DESIRED" ]; then
+    info "DaemonSet ready: desired=${DESIRED} ready=${READY}"
+    DS_READY=true
+    break
+  fi
+  echo -n "."
+  sleep 2
+done
+echo
+if [ "$DS_READY" != true ]; then
+  fail "sensor DaemonSet never reached desired>=1 && ready==desired after 120s (last: desired=${DESIRED:-0} ready=${READY:-0})"
+  exit 1
+fi
 kubectl rollout status daemonset/tracepod-sensor --timeout=120s
+
+# The DaemonSet being "ready" (container started) is not the same as the
+# sensor having finished connecting to NRI — that's the actual precondition
+# for a workload started afterward to be adopted via NRI's StartContainer
+# hook (adoption_mode=nri-start) instead of a Synchronize scan on next
+# reconcile. Poll the sensor's own log line for this. `--tail=-1` because
+# `kubectl logs -l <selector>` defaults to --tail=10, which can scroll this
+# line out of view once the sensor has logged more since.
+info "Waiting for sensor to report NRI connected (up to 90s)..."
+NRI_READY=false
+for i in $(seq 1 45); do
+  SENSOR_LOG=$(kubectl logs -l app.kubernetes.io/name=tracepod-sensor --tail=-1 2>/dev/null || true)
+  if [[ "$SENSOR_LOG" == *"NRI unavailable"* ]]; then
+    fail "sensor reported NRI unavailable: $(grep 'NRI unavailable' <<<"$SENSOR_LOG" | tail -1)"
+    exit 1
+  fi
+  if [[ "$SENSOR_LOG" == *"NRI connected"* ]]; then
+    info "Sensor log: $(grep 'NRI connected' <<<"$SENSOR_LOG" | tail -1)"
+    NRI_READY=true
+    break
+  fi
+  echo -n "."
+  sleep 2
+done
+echo
+if [ "$NRI_READY" != true ]; then
+  fail "sensor did not report 'NRI connected' within 90s"
+  exit 1
+fi
 
 # ── Phase 4: workload ──────────────────────────────────────────────────────────
 info "Phase 4: deploying nginx workload"
