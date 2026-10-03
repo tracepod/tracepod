@@ -6,6 +6,21 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **GitHub Action (`action.yml`) install step downloaded a 404.** It fetched
+  `tracepod_${VERSION#v}_linux_${ARCH}.tar.gz`, but goreleaser publishes the
+  `harden` binary under `tracepod_harden_${VERSION#v}_linux_${ARCH}.tar.gz`
+  (see `.goreleaser.yaml`); every action run failed at install. Also: `latest`
+  resolution no longer calls the GitHub API with `jq` (rate-limited on shared
+  runner IPs) — it now reads the `/releases/latest` redirect target — and the
+  syft install is pinned to `v1.54.0` with checksum verification (was
+  `install.sh@main`, consistent with `e2e-al2023.yaml`). The action's usage
+  example now pins `uses: tracepod/tracepod@v0.2.4` instead of the
+  nonexistent `@v0`. Added an `action (composite: install + harden build)` CI
+  job that runs the action from the PR checkout against a committed fixture
+  manifest so this can't silently regress.
+
 ## [0.2.3] - 2026-10-03
 
 ### Changed
