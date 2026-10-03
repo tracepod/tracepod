@@ -6,6 +6,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-03
+
 ### Changed
 
 - **Sensor exits non-zero when NRI is unavailable (outside `--cgroup-path`
@@ -277,7 +279,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 - `schema_version` changed type from string (`"1"`) to integer (`2`). Consumers
   must treat a string `schema_version` (or its absence) as a legacy v1 profile.
 
-[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/tracepod/tracepod/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/tracepod/tracepod/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/tracepod/tracepod/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tracepod/tracepod/compare/v0.1.2...v0.2.0
