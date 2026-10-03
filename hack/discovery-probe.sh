@@ -24,7 +24,7 @@
 #   kubectl debug node/<name> -it --image=ubuntu:24.04 -- bash
 #   # inside the debug pod:
 #   apt-get update -qq && apt-get install -y -qq curl socat
-#   curl -fsSLO https://raw.githubusercontent.com/tracepod/tracepod/v0.2.4/hack/discovery-probe.sh
+#   curl -fsSLO https://raw.githubusercontent.com/tracepod/tracepod/v0.2.5/hack/discovery-probe.sh
 #   HOST_ROOT=/host bash discovery-probe.sh
 #
 # Environment variables:

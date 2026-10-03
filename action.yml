@@ -3,7 +3,7 @@
 # Profile your app during CI e2e tests (or bring a recorded profile), then
 # harden, smoke-test, and SBOM the image as part of the release pipeline:
 #
-#   - uses: tracepod/tracepod@v0.2.4
+#   - uses: tracepod/tracepod@v0.2.5
 #     with:
 #       manifest: profiles/app/files.json
 #       source: ghcr.io/acme/app:${{ github.sha }}

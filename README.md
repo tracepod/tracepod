@@ -100,7 +100,7 @@ Verify:
 
 ```bash
 # Sensor DaemonSet image (used by Helm chart) — pin to a release tag
-docker pull ghcr.io/tracepod/tracepod-sensor:v0.2.4
+docker pull ghcr.io/tracepod/tracepod-sensor:v0.2.5
 ```
 
 ### From goreleaser releases
@@ -143,7 +143,7 @@ CGO_ENABLED=0 go build ./cmd/harden/
 #      kubectl debug node/<name> -it --image=ubuntu:24.04 -- bash
 #      # then, inside the debug pod:
 #      apt-get update -qq && apt-get install -y -qq curl socat
-#      curl -fsSLO https://raw.githubusercontent.com/tracepod/tracepod/v0.2.4/hack/discovery-probe.sh
+#      curl -fsSLO https://raw.githubusercontent.com/tracepod/tracepod/v0.2.5/hack/discovery-probe.sh
 #      HOST_ROOT=/host bash discovery-probe.sh
 #
 #   exit 0  NRI reachable — the sensor will work
@@ -401,7 +401,7 @@ own kernel build, on each of EKS's three shipping kernels:
 
 ```bash
 limactl start --tty=false --name=al2023-e2e infra/lima/al2023-e2e.yaml
-hack/e2e/run-e2e-al2023.sh --kernel 6.1 --ref v0.2.4   # kernel switch is manual — see below
+hack/e2e/run-e2e-al2023.sh --kernel 6.1 --ref v0.2.5   # kernel switch is manual — see below
 limactl stop al2023-e2e   # leaves the VM in place for reuse
 ```
 
