@@ -35,7 +35,12 @@
 #                      global kernel state, not namespaced, so it needs no
 #                      prefix even under HOST_ROOT.
 #   CGROUP_ROOT        override the full path (default: $HOST_ROOT/sys/fs/cgroup)
-#   NRI_SOCKET         override the full path (default: $HOST_ROOT/var/run/nri/nri.sock)
+#   NRI_SOCKET         override the full path (default: $HOST_ROOT/run/nri/nri.sock —
+#                      /run, not /var/run: /var/run is itself a symlink to /run on
+#                      Debian/Ubuntu-family nodes (including kind's), and an absolute
+#                      symlink target escapes the $HOST_ROOT prefix on resolution, so
+#                      $HOST_ROOT/var/run/... silently resolves to the DEBUG POD's own
+#                      /run instead of the host's — confirmed against a live kind node)
 #   CONTAINERD_CONFIG  override the full path (default: $HOST_ROOT/etc/containerd/config.toml)
 #
 # Exit codes:
@@ -49,7 +54,7 @@ set -uo pipefail
 
 HOST_ROOT="${HOST_ROOT:-}"
 CGROUP_ROOT="${CGROUP_ROOT:-${HOST_ROOT}/sys/fs/cgroup}"
-NRI_SOCKET="${NRI_SOCKET:-${HOST_ROOT}/var/run/nri/nri.sock}"
+NRI_SOCKET="${NRI_SOCKET:-${HOST_ROOT}/run/nri/nri.sock}"
 CONTAINERD_CONFIG="${CONTAINERD_CONFIG:-${HOST_ROOT}/etc/containerd/config.toml}"
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
