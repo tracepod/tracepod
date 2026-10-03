@@ -82,7 +82,9 @@ info "Phase 1: building sensor image"
 cd "${REPO_ROOT}"
 
 if docker image inspect "${SENSOR_IMAGE}" >/dev/null 2>&1; then
-  info "Sensor image ${SENSOR_IMAGE} already exists — skipping build"
+  IMAGE_CREATED="$(docker image inspect "${SENSOR_IMAGE}" --format '{{.Created}}' 2>/dev/null || echo 'unknown')"
+  warn "Sensor image ${SENSOR_IMAGE} already exists (created: ${IMAGE_CREATED}) — skipping build."
+  warn "This may be testing a stale binary. To force a rebuild: docker rmi ${SENSOR_IMAGE}"
 elif [ "${ARCH}" = "aarch64" ]; then
   # Lima VM (arm64): arm64 BPF objects are committed to git, so Dockerfile.sensor
   # skips 'make generate' and builds without clang/bpftool on the host.
