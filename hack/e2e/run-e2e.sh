@@ -201,6 +201,22 @@ if [ "$NRI_READY" != true ]; then
   exit 1
 fi
 
+# ── Phase 3b: discovery-probe via a node-debug pod (opt-in) ────────────────────
+# Exercises hack/discovery-probe.sh exactly as a user without node/SSH access
+# would run it — through `kubectl debug node`. Opt-in via PROBE_VIA_DEBUG_POD
+# so this never runs inside the AL2023 e2e legs that reuse this script (their
+# nested-QEMU networking is already noted elsewhere as slow/flaky, and this
+# step needs `apt-get install socat` inside the debug pod); only
+# .github/workflows/e2e.yaml (the plain Ubuntu/kind job) sets it.
+if [ "${PROBE_VIA_DEBUG_POD:-false}" = true ]; then
+  info "Phase 3b: discovery-probe via node-debug pod (NRI enabled — expect exit 0)"
+  source "${SCRIPT_DIR}/lib-discovery-probe.sh"
+  NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+  if ! run_discovery_probe_via_debug_pod "${NODE}" 0; then
+    exit 1
+  fi
+fi
+
 # ── Phase 4: workload ──────────────────────────────────────────────────────────
 info "Phase 4: deploying nginx workload"
 kubectl create deployment nginx-e2e --image=nginx:alpine 2>/dev/null || \
