@@ -222,6 +222,23 @@ Key things to check:
 The sensor can run directly on a Linux host and profile containers started via `crictl`:
 
 ```bash
+# 0. Check that this host can actually run the sensor BEFORE installing —
+#    the sensor's only discovery mechanism is containerd's NRI; if it's
+#    unreachable the sensor now refuses to run rather than silently
+#    tracing nothing (see "NRI must be enabled" below).
+#
+#    On a bare host the probe runs directly — no HOST_ROOT needed
+#    (that's only for node-debug pods bind-mounting the host filesystem):
+./hack/discovery-probe.sh
+#
+#    Or, if you don't have the repo checked out on this host:
+#      curl -fsSLO https://raw.githubusercontent.com/tracepod/tracepod/v0.2.5/hack/discovery-probe.sh
+#      bash discovery-probe.sh
+#
+#   exit 0  NRI reachable — the sensor will work
+#   exit 1  NRI unreachable — the sensor would trace nothing (see its remediation output)
+#   exit 2  probe could not run (missing tooling, not Linux)
+
 # 1. Enable NRI in containerd (see Prerequisites above)
 
 # 2. Run the sensor binary (Linux only, requires root / CAP_BPF + CAP_SYS_ADMIN)
