@@ -1,4 +1,6 @@
-Tracepod sensor deployed successfully.
+Tracepod sensor DaemonSet installed in namespace {{ .Release.Namespace }}.
+Before relying on it, confirm NRI is reachable on your nodes (below) and
+that a sensor pod is Running on each node you'll profile.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

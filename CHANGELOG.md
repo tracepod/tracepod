@@ -6,6 +6,16 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Standalone quick start now runs `discovery-probe.sh` as step 0 (mirroring
+  the Kubernetes quick-start's probe-first wording and exit codes) before
+  enabling NRI; Helm `NOTES.txt`'s opening line no longer claims the sensor
+  "deployed successfully" (install only means the DaemonSet was scheduled,
+  not that it's running/tracing) — it now states the DaemonSet was installed
+  and points at the NRI/readiness checks below it; chart `home:` now points
+  to https://tracepod.co.uk instead of the GitHub repo.
+
 ## [0.2.5] - 2026-10-03
 
 ### Fixed

@@ -10,9 +10,9 @@ keywords:
   - container
   - hardening
   - profiling
-home: https://github.com/tracepod/tracepod
+home: https://tracepod.co.uk
 sources:
   - https://github.com/tracepod/tracepod
 maintainers:
   - name: Tracepod
-    url: https://github.com/tracepod/tracepod
+    url: https://tracepod.co.uk
