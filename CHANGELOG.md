@@ -6,6 +6,26 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Sensor exits non-zero when NRI is unavailable (outside `--cgroup-path`
+  mode).** Previously it warned once to stderr and kept running with an empty
+  BPF allowlist, so the pod stayed `READY=true` while tracing nothing (see
+  `docs/KNOWN-LIMITATIONS.md` §0.6). Now the container exits and the pod goes
+  `CrashLoopBackOff`/not Ready instead, recovering on its own once NRI is
+  enabled. Manual `--cgroup-path` debugging mode is unaffected — it never
+  depended on NRI and keeps the warn-and-continue behavior.
+- **`harden build` refuses manifests with zero `direct` (eBPF-observed)
+  entries**, exiting `3` before attempting any pull/build, unless
+  `--allow-empty` is passed. A build from inference/manual entries alone with
+  no direct observations usually means the sensor wasn't active or the
+  profiling window captured nothing. The GitHub Action (`action.yml`) does not
+  expose `--allow-empty` and will now fail on an empty manifest where it
+  previously built with only a "Very Low confidence" warning.
+- `README.md`, `helm/tracepod/templates/NOTES.txt`, and
+  `docs/KNOWN-LIMITATIONS.md` §0.6 now lead with `hack/discovery-probe.sh` as
+  the pre-install check, and document the new exit codes/behavior above.
+
 ## [0.2.2] - 2026-09-27
 
 ### Added

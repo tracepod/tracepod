@@ -2,6 +2,32 @@ Tracepod sensor deployed successfully.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+IMPORTANT: The sensor requires containerd with NRI enabled — it is its only
+container-discovery mechanism. Before trusting a green rollout, run on a node:
+
+  ./hack/discovery-probe.sh
+
+or, with no node/SSH access, via a node-debug pod (host filesystem is at
+/host there, not /):
+
+  kubectl debug node/<name> -it --image=ubuntu:24.04 -- bash
+  # then, inside the debug pod:
+  apt-get update -qq && apt-get install -y -qq curl socat
+  curl -fsSLO https://raw.githubusercontent.com/tracepod/tracepod/main/hack/discovery-probe.sh
+  HOST_ROOT=/host bash discovery-probe.sh
+
+Exit 1 means NRI is unreachable — this install will trace nothing.
+
+If NRI is unavailable, the sensor pod now exits and CrashLoopBackOffs (logs
+say "NRI unavailable") instead of running quietly while tracing nothing — it
+recovers on its own once NRI is enabled on the node (kubelet backoff, up to
+~5 min between restarts).
+
+Containers started with docker run or nerdctl run are NOT profiled.
+Only containers started through the Kubernetes CRI (kubelet) are observed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 Wait for the DaemonSet to be ready:
 
   kubectl -n {{ .Release.Namespace }} rollout status daemonset/{{ include "tracepod.sensorName" . }}
@@ -47,14 +73,5 @@ Then build a hardened image from the profile:
 {{- end }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-IMPORTANT: The sensor requires containerd with NRI enabled.
-Verify NRI is enabled on your nodes:
-
-  grep -E "^\s*disable\s*=" /etc/containerd/config.toml | grep nri
-  # Should print: disable = false   (or be absent — enabled by default in containerd 2.x)
-
-Containers started with docker run or nerdctl run are NOT profiled.
-Only containers started through the Kubernetes CRI (kubelet) are observed.
 
 Documentation: https://github.com/tracepod/tracepod

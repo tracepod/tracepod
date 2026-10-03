@@ -45,6 +45,12 @@ jobs:
       - name: Build sensor binary (amd64)
         run: CGO_ENABLED=0 go build -o sensor ./cmd/sensor
 
+      # ci.yaml's native 'go test' excludes cmd/sensor (no committed amd64 BPF
+      # objects there); this is the only CI leg with 'make generate' already
+      # run, so it's the only place cmd/sensor's own unit tests can execute.
+      - name: Test sensor package (amd64)
+        run: CGO_ENABLED=0 go test ./cmd/sensor/...
+
       - name: Build sensor Docker image
         run: docker build -f Dockerfile.sensor.dev -t tracepod-sensor:e2e .
 
@@ -71,6 +77,11 @@ jobs:
         run: mkdir -p /tmp/tracepod-e2e-profiles
 
       - name: Run e2e
+        env:
+          # Exercises hack/discovery-probe.sh via a node-debug pod against this
+          # cluster's NRI-enabled kind node (expect exit 0). Opt-in and set only
+          # here, not in the AL2023 e2e legs that share run-e2e.sh.
+          PROBE_VIA_DEBUG_POD: "true"
         run: bash hack/e2e/run-e2e.sh
 
       # ── Artifacts & debug ────────────────────────────────────────────────────
@@ -97,3 +108,66 @@ jobs:
           path: /tmp/tracepod-e2e-profiles/
           if-no-files-found: ignore
           retention-days: 7
+
+  e2e-no-nri:
+    name: "e2e (NRI disabled → sensor refuses to run)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # ── Sensor image (minimal subset of the positive-path job's steps —
+      # separate runner, so the image can't be reused across jobs) ──────────────
+      - name: Install BPF build deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends clang-18 llvm-18 libbpf-dev
+
+      - name: Install bpftool
+        run: |
+          BPFTOOL_VERSION=v7.7.0
+          curl -fsSL \
+            "https://github.com/libbpf/bpftool/releases/download/${BPFTOOL_VERSION}/bpftool-${BPFTOOL_VERSION}-amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin
+          sudo chmod +x /usr/local/bin/bpftool
+
+      - name: Generate BPF objects (amd64)
+        run: make generate
+
+      - name: Build sensor binary (amd64)
+        run: CGO_ENABLED=0 go build -o sensor ./cmd/sensor
+
+      - name: Build sensor Docker image
+        run: docker build -f Dockerfile.sensor.dev -t tracepod-sensor:e2e .
+
+      - name: Install kind v0.27.0
+        run: |
+          curl -fsSL -o /tmp/kind \
+            https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
+
+      - uses: azure/setup-helm@v4
+
+      # ── E2E test (negative path — sensor-only, no workload/harden/validate) ───
+      - name: Run e2e (NRI disabled)
+        run: bash hack/e2e/run-e2e-no-nri.sh
+
+      - name: Collect debug info on failure
+        if: failure()
+        run: |
+          echo "=== kind cluster nodes ==="
+          kind get clusters || true
+          kubectl get nodes -o wide 2>/dev/null || true
+          echo "=== all pods ==="
+          kubectl get pods -A 2>/dev/null || true
+          echo "=== sensor pod logs (current) ==="
+          kubectl logs -l app.kubernetes.io/name=tracepod-sensor --tail=100 2>/dev/null || true
+          echo "=== sensor pod logs (--previous) ==="
+          kubectl logs -l app.kubernetes.io/name=tracepod-sensor --tail=100 --previous 2>/dev/null || true

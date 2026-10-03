@@ -16,9 +16,11 @@
 // the Kubernetes CRI (kubelet → containerd) are profiled. Containers started
 // with docker run or nerdctl run bypass NRI and produce no manifest.
 //
-// If the NRI socket is unreachable (containerd absent or NRI disabled) the
-// sensor warns and continues — useful for bare-metal debugging runs where
-// cgroups are added manually via --cgroup-path.
+// If the NRI socket is unreachable (containerd absent or NRI disabled), the
+// sensor exits non-zero (so it cannot look healthy while tracing nothing) —
+// except in --cgroup-path mode, which does not depend on NRI and keeps
+// warning and continuing, for bare-metal debugging runs where cgroups are
+// added manually.
 //
 // Flags:
 //
@@ -78,6 +80,15 @@ var (
 	commit  = "unknown"
 )
 
+// nriFailureIsFatal reports whether a failed plugin.Start() should stop the
+// sensor. Manual --cgroup-path mode never adopts containers through NRI, so
+// a failure there is unaffected and only warns; every other mode has no other
+// way to discover containers, so a failure there must be fatal rather than
+// leave the sensor running (and reporting healthy) while tracing nothing.
+func nriFailureIsFatal(cgroupPath string) bool {
+	return cgroupPath == ""
+}
+
 func main() {
 	cgroupPath := flag.String("cgroup-path", "", "manually allow this cgroup path (debug)")
 	profileDir := flag.String("profile-dir", "profiles", "directory for manifest output")
@@ -136,10 +147,17 @@ func main() {
 	}
 
 	// Connect the NRI plugin so containerd can push container lifecycle events.
-	// If NRI is unavailable we warn rather than fatal — the sensor still runs
-	// but the allowed_cgroups map stays empty, so no events are emitted.
+	// Outside --cgroup-path mode, NRI is the sensor's only discovery mechanism —
+	// a sensor that can't reach it would otherwise sit there tracing nothing
+	// while still reporting healthy, so we refuse to run instead (kubelet then
+	// surfaces the failure as CrashLoopBackOff). --cgroup-path mode never
+	// depends on NRI, so it keeps the warn-and-continue behavior.
 	plugin := container.NewPlugin(p, router.onContainerStart, router.onContainerStop)
 	if err := plugin.Start(); err != nil {
+		if nriFailureIsFatal(*cgroupPath) {
+			fmt.Fprintf(os.Stderr, "fatal: NRI unavailable (%v) — refusing to run: no containers would be traced. Enable NRI in containerd (docs/KNOWN-LIMITATIONS.md §0.6) or run hack/discovery-probe.sh on this node.\n", err)
+			os.Exit(1)
+		}
 		fmt.Fprintf(os.Stderr, "warn: NRI unavailable (%v) — no containers will be traced\n", err)
 	} else {
 		fmt.Fprintln(os.Stderr, "NRI connected — waiting for containers.")

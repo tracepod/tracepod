@@ -63,6 +63,7 @@ Exit codes:
   1  Fatal error (missing flags, network failure, unresolved ELF dependencies)
   2  Warning: non-resolv.conf scratch-compat file absent from source image layers
      (resolv.conf absence is expected — it is bind-mounted by the container runtime)
+  3  Refused: manifest has 0 direct (eBPF-observed) entries (pass --allow-empty to build anyway)
 
 Version: %s (commit %s)
 `, version, commit)

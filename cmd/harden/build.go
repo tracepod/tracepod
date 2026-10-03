@@ -42,6 +42,7 @@ func runBuild(args []string) int {
 		sbomSignKey        = fs.String("sbom-sign-key", "", "Path to cosign private key for signing SBOMs (requires --sbom)")
 		smokeTest          = fs.Bool("smoke-test", false, "After building, load the image into the local Docker daemon and run it briefly — fails the build if the minimized image cannot boot")
 		smokeWindow        = fs.Duration("smoke-window", 5*time.Second, "How long the smoke-test container must survive (requires --smoke-test)")
+		allowEmpty         = fs.Bool("allow-empty", false, "Build even when the manifest has zero direct (eBPF-observed) entries (default: refuse)")
 		includePaths       multiFlag
 		mkdirs             multiFlag
 		touches            multiFlag
@@ -76,6 +77,17 @@ func runBuild(args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: load manifest %s: %v\n", *manifestPath, err)
 		return 1
+	}
+
+	// Refuse before any pull/build work: zero direct (eBPF-observed) entries
+	// means the sensor wasn't active or the profiling window captured nothing
+	// — the resulting image would be built almost entirely from inference and
+	// is very likely to be broken. --allow-empty opts back into the old
+	// behavior (build anyway; the existing "Very Low confidence" warning still
+	// applies). See README "Exit codes".
+	if directCount, _, _, _ := countBySources(m); directCount == 0 && !*allowEmpty {
+		fmt.Fprintln(os.Stderr, "error: manifest has 0 direct observations — the sensor wasn't active or the profiling window captured nothing; see README. Pass --allow-empty to build anyway.")
+		return 3
 	}
 
 	isExplicit := *username != "" && *password != ""
