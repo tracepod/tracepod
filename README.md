@@ -99,8 +99,8 @@ Verify:
 ### From GHCR (container image)
 
 ```bash
-# Sensor DaemonSet image (used by Helm chart)
-docker pull ghcr.io/tracepod/tracepod-sensor:latest
+# Sensor DaemonSet image (used by Helm chart) — pin to a release tag
+docker pull ghcr.io/tracepod/tracepod-sensor:v0.2.3
 ```
 
 ### From goreleaser releases
@@ -143,7 +143,7 @@ CGO_ENABLED=0 go build ./cmd/harden/
 #      kubectl debug node/<name> -it --image=ubuntu:24.04 -- bash
 #      # then, inside the debug pod:
 #      apt-get update -qq && apt-get install -y -qq curl socat
-#      curl -fsSLO https://raw.githubusercontent.com/tracepod/tracepod/main/hack/discovery-probe.sh
+#      curl -fsSLO https://raw.githubusercontent.com/tracepod/tracepod/v0.2.3/hack/discovery-probe.sh
 #      HOST_ROOT=/host bash discovery-probe.sh
 #
 #   exit 0  NRI reachable — the sensor will work
@@ -161,8 +161,15 @@ helm install tracepod ./helm/tracepod \
 #    Profiles are written to /var/lib/tracepod/profiles/<container-id>/files.json
 #    on the node when the container stops
 
-# 4. Retrieve the manifest from inside the sensor pod
-kubectl exec -n tracepod daemonset/tracepod-sensor -- \
+# 4. Retrieve the manifest — find the sensor pod on the node your container
+#    ran on (a multi-node cluster has one sensor pod per node, so exec'ing
+#    "daemonset/tracepod-sensor" picks an arbitrary one and may miss the file):
+NODE=$(kubectl get pod <your-pod> -o jsonpath='{.spec.nodeName}')
+SENSOR=$(kubectl -n tracepod get pod \
+  -l app.kubernetes.io/name=tracepod-sensor \
+  --field-selector spec.nodeName=$NODE \
+  -o jsonpath='{.items[0].metadata.name}')
+kubectl -n tracepod exec $SENSOR -- \
   cat /profiles/<container-id>/files.json > manifest.json
 
 # Map container IDs to pod names:
