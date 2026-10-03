@@ -46,7 +46,7 @@
 # Exit codes:
 #   0  NRI reachable — the sensor will work
 #   1  NRI unreachable — the sensor would trace nothing (see remediation output)
-#   2  probe could not run (missing tooling, not Linux)
+#   2  probe could not run (not a Linux host)
 #
 # Read-only: this script never writes outside /tmp and never restarts anything.
 
