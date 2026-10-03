@@ -8,7 +8,12 @@
 //
 // Usage:
 //
-//	tracepod [--kubeconfig <path>] [--controller-namespace <ns>] <command>
+//	tracepod [--kubeconfig <path>] [--controller-namespace <ns>] <command> [command flags]
+//
+// Global flags (--kubeconfig, --controller-namespace) must come before the
+// command; a subcommand's own flags may appear before or after its
+// positional argument (e.g. both `cve-report my-app --verbose` and
+// `cve-report --verbose my-app` work).
 //
 // Commands:
 //
@@ -40,10 +45,12 @@ func main() {
 	ctrlNS := flag.String("controller-namespace", "tracepod", "namespace where the Tracepod controller is deployed")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tracepod [flags] <command>\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tracepod [global flags] <command> [command flags]\n\n")
 		fmt.Fprintf(os.Stderr, "Connects to the Tracepod controller in your Kubernetes cluster via port-forward.\n")
-		fmt.Fprintf(os.Stderr, "Requires the controller to be deployed (helm install tracepod ./helm/tracepod).\n\n")
-		fmt.Fprintf(os.Stderr, "Flags:\n")
+		fmt.Fprintf(os.Stderr, "Requires the controller to be deployed (helm install tracepod ./helm/tracepod).\n")
+		fmt.Fprintf(os.Stderr, "Global flags must come before the command; a command's own flags may come\n")
+		fmt.Fprintf(os.Stderr, "before or after its positional argument.\n\n")
+		fmt.Fprintf(os.Stderr, "Global flags:\n")
 		fmt.Fprintf(os.Stderr, "  --kubeconfig <path>            path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)\n")
 		fmt.Fprintf(os.Stderr, "  --controller-namespace <ns>    namespace where controller is deployed (default: tracepod)\n")
 		fmt.Fprintf(os.Stderr, "  --version                      print version and exit\n\n")
@@ -104,10 +111,18 @@ func runProfile(args []string, kubeconfig, ctrlNS string) {
 	}
 }
 
+const (
+	usageProfileList = "Usage: tracepod profile list [--namespace <ns>]\n"
+	usageProfileGet  = "Usage: tracepod profile get --namespace <ns> --deployment <name> [--output <file>]\n"
+	usageProfileStop = "Usage: tracepod profile stop --namespace <ns> --deployment <name>\n"
+)
+
 func runList(args []string, kubeconfig, ctrlNS string) {
-	fs := flag.NewFlagSet("profile list", flag.ExitOnError)
+	fs := flag.NewFlagSet("profile list", flag.ContinueOnError)
 	ns := fs.String("namespace", "", "filter by namespace (default: all)")
-	fs.Parse(args) //nolint:errcheck
+	if err := parseNoPositionals(fs, args); err != nil {
+		exitForArgError(err, usageProfileList)
+	}
 
 	baseURL, cleanup, err := connect(kubeconfig, ctrlNS)
 	if err != nil {
@@ -139,14 +154,16 @@ func runList(args []string, kubeconfig, ctrlNS string) {
 }
 
 func runGet(args []string, kubeconfig, ctrlNS string) {
-	fs := flag.NewFlagSet("profile get", flag.ExitOnError)
+	fs := flag.NewFlagSet("profile get", flag.ContinueOnError)
 	ns := fs.String("namespace", "", "namespace of the deployment (required)")
 	dep := fs.String("deployment", "", "deployment name (required)")
 	output := fs.String("output", "", "write manifest JSON to this file instead of stdout")
-	fs.Parse(args) //nolint:errcheck
+	if err := parseNoPositionals(fs, args); err != nil {
+		exitForArgError(err, usageProfileGet)
+	}
 
 	if *ns == "" || *dep == "" {
-		fmt.Fprintf(os.Stderr, "Usage: tracepod profile get --namespace <ns> --deployment <name> [--output <file>]\n")
+		fmt.Fprint(os.Stderr, usageProfileGet)
 		os.Exit(1)
 	}
 
@@ -175,13 +192,15 @@ func runGet(args []string, kubeconfig, ctrlNS string) {
 }
 
 func runStop(args []string, kubeconfig, ctrlNS string) {
-	fs := flag.NewFlagSet("profile stop", flag.ExitOnError)
+	fs := flag.NewFlagSet("profile stop", flag.ContinueOnError)
 	ns := fs.String("namespace", "", "namespace of the deployment (required)")
 	dep := fs.String("deployment", "", "deployment name (required)")
-	fs.Parse(args) //nolint:errcheck
+	if err := parseNoPositionals(fs, args); err != nil {
+		exitForArgError(err, usageProfileStop)
+	}
 
 	if *ns == "" || *dep == "" {
-		fmt.Fprintf(os.Stderr, "Usage: tracepod profile stop --namespace <ns> --deployment <name>\n")
+		fmt.Fprint(os.Stderr, usageProfileStop)
 		os.Exit(1)
 	}
 

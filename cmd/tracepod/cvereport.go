@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,36 +15,88 @@ import (
 	"time"
 )
 
-// runCVEReport implements `tracepod cve-report <workload|profile-id>`. It is a
-// pure rendering client of the controller's Lite-served reachability API: it
-// fetches a report the controller produced and renders it. No classification,
-// matching, scoring, or gating happens here.
-func runCVEReport(args []string, kubeconfig, ctrlNS string) {
-	fs := flag.NewFlagSet("cve-report", flag.ExitOnError)
+const cveReportUsage = "Usage: tracepod cve-report <workload|profile-id> [--findings <file>] [--severity <level>] [--output table|json] [--verbose]\n"
+
+// errBadTargetCount marks a wrong-positional-count failure (missing or
+// multiple targets) so runCVEReport can preserve the pre-existing exit code
+// (1) for it, distinct from flag.Parse failures (exit code 2, flag's own
+// ExitOnError convention).
+var errBadTargetCount = errors.New("cve-report: want exactly one target")
+
+// cveReportOpts holds the parsed flags and positional target for `tracepod
+// cve-report`.
+type cveReportOpts struct {
+	target        string
+	output        string
+	findings      string
+	severity      string
+	namespace     string
+	controllerURL string
+	verbose       bool
+}
+
+// parseCVEReportArgs parses args for the cve-report subcommand, accepting the
+// positional target before, after, or interspersed with flags (see
+// parseInterspersed). It uses flag.ContinueOnError so parse failures are
+// returned rather than exiting the process, which keeps this function
+// unit-testable.
+func parseCVEReportArgs(args []string, stderr io.Writer) (cveReportOpts, error) {
+	fs := flag.NewFlagSet("cve-report", flag.ContinueOnError)
+	fs.SetOutput(stderr)
 	output := fs.String("output", "table", "output format: table | json")
 	findings := fs.String("findings", "", "upload a Trivy/Grype findings JSON file instead of triggering a server-side scan")
 	severity := fs.String("severity", "", "minimum severity to show in the table: critical|high|medium|low|negligible|all (default high)")
 	namespace := fs.String("namespace", "", "namespace of the workload (disambiguates a workload name; ignored for a numeric profile-id)")
 	controllerURL := fs.String("controller-url", "", "controller base URL (e.g. http://localhost:8080); bypasses the in-cluster port-forward")
 	verbose := fs.Bool("verbose", false, "show the coverage-score breakdown and attribution evidence")
-	fs.Parse(args) //nolint:errcheck
 
-	rest := fs.Args()
-	if len(rest) != 1 {
-		fmt.Fprintf(os.Stderr, "Usage: tracepod cve-report <workload|profile-id> [--findings <file>] [--severity <level>] [--output table|json] [--verbose]\n")
-		os.Exit(1)
+	rest, err := parseInterspersed(fs, args)
+	if err != nil {
+		return cveReportOpts{}, err
 	}
-	target := rest[0]
+	if len(rest) != 1 {
+		fmt.Fprint(stderr, cveReportUsage)
+		return cveReportOpts{}, fmt.Errorf("%w (got %d)", errBadTargetCount, len(rest))
+	}
 
-	sevThreshold, err := validateSeverity(*severity)
+	return cveReportOpts{
+		target:        rest[0],
+		output:        *output,
+		findings:      *findings,
+		severity:      *severity,
+		namespace:     *namespace,
+		controllerURL: *controllerURL,
+		verbose:       *verbose,
+	}, nil
+}
+
+// runCVEReport implements `tracepod cve-report <workload|profile-id>`. It is a
+// pure rendering client of the controller's Lite-served reachability API: it
+// fetches a report the controller produced and renders it. No classification,
+// matching, scoring, or gating happens here.
+func runCVEReport(args []string, kubeconfig, ctrlNS string) {
+	opts, err := parseCVEReportArgs(args, os.Stderr)
+	if err != nil {
+		switch {
+		case errors.Is(err, flag.ErrHelp):
+			os.Exit(0)
+		case errors.Is(err, errBadTargetCount):
+			os.Exit(1)
+		default:
+			os.Exit(2)
+		}
+	}
+	target := opts.target
+
+	sevThreshold, err := validateSeverity(opts.severity)
 	if err != nil {
 		fatal("%v", err)
 	}
-	if *output != "table" && *output != "json" {
-		fatal("invalid --output %q (want table or json)", *output)
+	if opts.output != "table" && opts.output != "json" {
+		fatal("invalid --output %q (want table or json)", opts.output)
 	}
 
-	baseURL := strings.TrimRight(*controllerURL, "/")
+	baseURL := strings.TrimRight(opts.controllerURL, "/")
 	if baseURL == "" {
 		var cleanup func()
 		var err error
@@ -57,14 +110,14 @@ func runCVEReport(args []string, kubeconfig, ctrlNS string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	profileID, err := resolveProfileID(ctx, baseURL, target, *namespace)
+	profileID, err := resolveProfileID(ctx, baseURL, target, opts.namespace)
 	if err != nil {
 		fatal("%v", err)
 	}
 
 	var raw []byte
-	if *findings != "" {
-		raw, err = importFindings(ctx, baseURL, profileID, *findings)
+	if opts.findings != "" {
+		raw, err = importFindings(ctx, baseURL, profileID, opts.findings)
 	} else {
 		raw, err = createAndAwaitReport(ctx, baseURL, profileID)
 	}
@@ -73,7 +126,7 @@ func runCVEReport(args []string, kubeconfig, ctrlNS string) {
 	}
 
 	// R5: --output json is byte-faithful to the controller payload — no reshaping.
-	if *output == "json" {
+	if opts.output == "json" {
 		_, _ = os.Stdout.Write(raw)
 		if len(raw) > 0 && raw[len(raw)-1] != '\n' {
 			fmt.Fprintln(os.Stdout)
@@ -86,7 +139,7 @@ func runCVEReport(args []string, kubeconfig, ctrlNS string) {
 		// R4: a schema-invalid response is distinct from a connection failure.
 		fatal("%v", err)
 	}
-	RenderHuman(os.Stdout, rep, renderOptions{severity: sevThreshold, verbose: *verbose})
+	RenderHuman(os.Stdout, rep, renderOptions{severity: sevThreshold, verbose: opts.verbose})
 }
 
 // resolveProfileID maps the CLI target to a controller profile id. A numeric
