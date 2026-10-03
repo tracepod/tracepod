@@ -32,7 +32,7 @@
 # Exit code: 0 if every check PASSes, 1 if any check FAILs.
 set -uo pipefail
 
-SENSOR_VERSION="0.2.5"
+SENSOR_VERSION="0.2.6"
 RELEASE_BASE="https://github.com/tracepod/tracepod/releases/download/v${SENSOR_VERSION}"
 WORKDIR="$(mktemp -d /tmp/tp-kernel-compat.XXXXXX)"
 CGROUP="/sys/fs/cgroup/tp-compat"
