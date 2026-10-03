@@ -8,10 +8,13 @@ container-discovery mechanism. Before trusting a green rollout, run on a node:
   ./hack/discovery-probe.sh
 
 or, with no node/SSH access, via a node-debug pod (host filesystem is at
-/host there, not /; see the script's own header for the exact invocation):
+/host there, not /):
 
   kubectl debug node/<name> -it --image=ubuntu:24.04 -- bash
-  # then inside: HOST_ROOT=/host bash discovery-probe.sh
+  # then, inside the debug pod:
+  apt-get update -qq && apt-get install -y -qq curl socat
+  curl -fsSLO https://raw.githubusercontent.com/tracepod/tracepod/main/hack/discovery-probe.sh
+  HOST_ROOT=/host bash discovery-probe.sh
 
 Exit 1 means NRI is unreachable — this install will trace nothing.
 

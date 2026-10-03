@@ -139,10 +139,12 @@ CGO_ENABLED=0 go build ./cmd/harden/
 #
 #    Or via a node-debug pod, if you don't have SSH/node access (the host
 #    filesystem is bind-mounted at /host in the debug pod, not at /, so
-#    HOST_ROOT must be set — see the script's own header for the exact
-#    invocation, bash + socat required):
+#    HOST_ROOT must be set):
 #      kubectl debug node/<name> -it --image=ubuntu:24.04 -- bash
-#      # ...then, inside the debug pod: HOST_ROOT=/host bash discovery-probe.sh
+#      # then, inside the debug pod:
+#      apt-get update -qq && apt-get install -y -qq curl socat
+#      curl -fsSLO https://raw.githubusercontent.com/tracepod/tracepod/main/hack/discovery-probe.sh
+#      HOST_ROOT=/host bash discovery-probe.sh
 #
 #   exit 0  NRI reachable — the sensor will work
 #   exit 1  NRI unreachable — the sensor would trace nothing (see its remediation output)

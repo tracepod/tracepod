@@ -24,12 +24,13 @@ func writeManifest(t *testing.T, m *manifest.Manifest) string {
 }
 
 // TestRunBuild_EmptyDirectManifest exercises the new --allow-empty gate.
-// --source is a bogus, unreachable registry ref: a manifest with 0 direct
-// entries must be rejected (exit 3) BEFORE any pull is attempted, so this
-// test never touches the network. With --allow-empty the check is skipped
-// and the build proceeds to the (now reachable) pull/build stage, which
-// fails there instead — this test only asserts that failure is NOT exit 3,
-// not that the build succeeds.
+// --source is a bogus, unreachable (.invalid) registry ref. The refusal
+// subtest never touches the network: a manifest with 0 direct entries is
+// rejected (exit 3) BEFORE any pull is attempted. The other two subtests
+// skip the empty-manifest check and proceed to the pull/build stage, which
+// does attempt a pull of the bogus host — that fails fast on NXDOMAIN rather
+// than succeeding, so they only assert that the failure is NOT exit 3, not
+// that the build succeeds.
 func TestRunBuild_EmptyDirectManifest(t *testing.T) {
 	zeroDirect := &manifest.Manifest{
 		Files: map[string]manifest.FileEntry{
@@ -46,23 +47,6 @@ func TestRunBuild_EmptyDirectManifest(t *testing.T) {
 	const bogusSource = "harden-test-invalid.invalid/does-not-exist:latest"
 
 	t.Run("zero direct entries without --allow-empty refuses before any network call", func(t *testing.T) {
-		manifestPath := writeManifest(t, zeroDirect)
-		outDir := t.TempDir()
-		got := runBuild([]string{
-			"--manifest", manifestPath,
-			"--source", bogusSource,
-			"--output", outDir,
-		})
-		if got != 3 {
-			t.Errorf("runBuild() = %d, want 3 (empty-manifest refusal)", got)
-		}
-	})
-
-	t.Run("manifest with only non-direct entries also refuses", func(t *testing.T) {
-		// Same manifest as above by construction (no SourceDirect entries) —
-		// listed separately to document the condition explicitly: it's the
-		// count of SourceDirect entries specifically, not len(m.Files), that
-		// gates the refusal.
 		manifestPath := writeManifest(t, zeroDirect)
 		outDir := t.TempDir()
 		got := runBuild([]string{
