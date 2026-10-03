@@ -216,16 +216,38 @@ kubectl exec deployment/nginx-e2e -- wget -qO- localhost/ >/dev/null || true
 kubectl exec deployment/nginx-e2e -- nginx -s reload 2>/dev/null || true
 kubectl exec deployment/nginx-e2e -- wget -qO- localhost/nginx-health >/dev/null 2>&1 || true
 
+# Capture nginx's container ID BEFORE scaling to 0 — the pod (and its
+# containerStatuses) disappears once the Deployment is scaled down, so this
+# must happen while the pod is still live. The sensor writes each profile to
+# ${PROFILE_DIR}/<container-id>/files.json using the full, untruncated
+# container ID (cmd/sensor/main.go's flush()), which matches
+# containerStatuses[].containerID with the "containerd://" scheme prefix
+# stripped.
+NGINX_POD=$(kubectl get pods -l app=nginx-e2e -o jsonpath='{.items[0].metadata.name}')
+NGINX_CID=$(kubectl get pod "${NGINX_POD}" -o jsonpath='{.status.containerStatuses[0].containerID}' | sed 's#^containerd://##')
+if [ -z "${NGINX_CID}" ]; then
+  fail "could not determine nginx container ID from pod ${NGINX_POD} before stopping it"
+  exit 1
+fi
+info "nginx container ID: ${NGINX_CID}"
+
 info "Scaling nginx to 0 (triggers NRI StopContainer → sensor profile flush)..."
 kubectl scale deployment nginx-e2e --replicas=0
 
 # ── Phase 5: wait for manifest ─────────────────────────────────────────────────
-info "Phase 5: waiting for sensor manifest (up to 60s)..."
-MANIFEST=""
+# Select nginx's manifest BY CONTAINER ID, not "the first files.json found" —
+# the sensor profiles every container on the node (kube-system containers
+# that restart, the Phase 8 node-debug pod, etc.), and any of those can race
+# nginx's own flush to disk. Picking by container ID makes this deterministic
+# regardless of what else the sensor is profiling concurrently (this is why
+# Phase 8 no longer needs to run last for correctness — see its comment).
+info "Phase 5: waiting for nginx's sensor manifest (up to 60s)..."
+MANIFEST="${PROFILE_DIR}/${NGINX_CID}/files.json"
+FOUND=false
 for i in $(seq 1 30); do
-  MANIFEST=$(find "${PROFILE_DIR}" -name "files.json" 2>/dev/null | head -1)
-  if [ -n "$MANIFEST" ]; then
+  if [ -f "${MANIFEST}" ]; then
     info "Manifest found: ${MANIFEST}"
+    FOUND=true
     break
   fi
   echo -n "."
@@ -233,8 +255,10 @@ for i in $(seq 1 30); do
 done
 echo
 
-if [ -z "$MANIFEST" ]; then
-  fail "Manifest not found in ${PROFILE_DIR} after 60s"
+if [ "${FOUND}" != true ]; then
+  fail "nginx manifest not found at ${MANIFEST} after 60s"
+  fail "PROFILE_DIR contents:"
+  find "${PROFILE_DIR}" -maxdepth 2 2>/dev/null >&2 || true
   exit 1
 fi
 
@@ -424,12 +448,12 @@ fi
 # so this never runs inside the AL2023 e2e legs that reuse this script (their
 # nested-QEMU networking is already noted elsewhere as slow/flaky, and this
 # step needs `apt-get install socat` inside the debug pod); only
-# .github/workflows/e2e.yaml (the plain Ubuntu/kind job) sets it. Deliberately
-# LAST: the debug pod is itself a real container that the sensor adopts and
-# profiles like any other, writing its own files.json into PROFILE_DIR —
-# running this any earlier contaminated Phase 5's "first files.json found"
-# manifest discovery with the debug pod's manifest instead of nginx's
-# (reproduced in CI: harden built an image missing docker-entrypoint.sh
+# .github/workflows/e2e.yaml (the plain Ubuntu/kind job) sets it. Kept LAST
+# in phase order, though this is no longer load-bearing: Phase 5 now selects
+# nginx's manifest by container ID rather than "the first files.json found",
+# so the debug pod's own files.json (it is a real container the sensor
+# adopts and profiles too) can no longer be mistaken for nginx's (previously
+# reproduced in CI: harden built an image missing docker-entrypoint.sh
 # because it was handed the debug pod's manifest, not nginx's).
 if [ "${PROBE_VIA_DEBUG_POD:-false}" = true ]; then
   info "Phase 8: discovery-probe via node-debug pod (NRI enabled — expect exit 0)"
