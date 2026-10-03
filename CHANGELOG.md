@@ -6,6 +6,11 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `tracepod` subcommands now accept flags after the workload/profile argument
+  (previously ignored, e.g. `tracepod cve-report my-app --findings f.json`).
+
 ## [0.2.4] - 2026-10-03
 
 ### Fixed

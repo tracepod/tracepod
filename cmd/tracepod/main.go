@@ -8,7 +8,12 @@
 //
 // Usage:
 //
-//	tracepod [--kubeconfig <path>] [--controller-namespace <ns>] <command>
+//	tracepod [--kubeconfig <path>] [--controller-namespace <ns>] <command> [command flags]
+//
+// Global flags (--kubeconfig, --controller-namespace) must come before the
+// command; a subcommand's own flags may appear before or after its
+// positional argument (e.g. both `cve-report my-app --verbose` and
+// `cve-report --verbose my-app` work).
 //
 // Commands:
 //
@@ -40,10 +45,12 @@ func main() {
 	ctrlNS := flag.String("controller-namespace", "tracepod", "namespace where the Tracepod controller is deployed")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tracepod [flags] <command>\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tracepod [global flags] <command> [command flags]\n\n")
 		fmt.Fprintf(os.Stderr, "Connects to the Tracepod controller in your Kubernetes cluster via port-forward.\n")
-		fmt.Fprintf(os.Stderr, "Requires the controller to be deployed (helm install tracepod ./helm/tracepod).\n\n")
-		fmt.Fprintf(os.Stderr, "Flags:\n")
+		fmt.Fprintf(os.Stderr, "Requires the controller to be deployed (helm install tracepod ./helm/tracepod).\n")
+		fmt.Fprintf(os.Stderr, "Global flags must come before the command; a command's own flags may come\n")
+		fmt.Fprintf(os.Stderr, "before or after its positional argument.\n\n")
+		fmt.Fprintf(os.Stderr, "Global flags:\n")
 		fmt.Fprintf(os.Stderr, "  --kubeconfig <path>            path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)\n")
 		fmt.Fprintf(os.Stderr, "  --controller-namespace <ns>    namespace where controller is deployed (default: tracepod)\n")
 		fmt.Fprintf(os.Stderr, "  --version                      print version and exit\n\n")
