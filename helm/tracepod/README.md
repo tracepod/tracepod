@@ -75,6 +75,14 @@ Wait for the DaemonSet to roll out:
 kubectl -n tracepod rollout status daemonset/tracepod-sensor
 ```
 
+`rollout status` succeeds vacuously when the DaemonSet has zero desired pods
+(e.g. all nodes tainted or otherwise unschedulable) — confirm a sensor pod is
+actually Running on each node you'll profile:
+
+```bash
+kubectl -n tracepod get pods -l app.kubernetes.io/name=tracepod-sensor -o wide
+```
+
 Verify the sensor connected to NRI:
 
 ```bash
