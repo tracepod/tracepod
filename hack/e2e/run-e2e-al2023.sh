@@ -17,7 +17,7 @@
 #              Linux 2023)"); this flag just labels the output files and is
 #              asserted against `uname -r` before running.
 #   --ref      git ref to archive and ship into the VM. Default: HEAD.
-#              Use the v0.2.4 tag for kernel-comparison runs so results
+#              Use the v0.2.5 tag for kernel-comparison runs so results
 #              describe the released code, not an in-progress worktree.
 #
 # Environment variables:
