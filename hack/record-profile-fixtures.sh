@@ -85,7 +85,9 @@ done
 info "Phase 1: building sensor image ${SENSOR_IMAGE}"
 cd "${REPO_ROOT}"
 if docker image inspect "${SENSOR_IMAGE}" >/dev/null 2>&1; then
-  info "Sensor image already present — skipping build"
+  IMAGE_CREATED="$(docker image inspect "${SENSOR_IMAGE}" --format '{{.Created}}' 2>/dev/null || echo 'unknown')"
+  warn "Sensor image ${SENSOR_IMAGE} already exists (created: ${IMAGE_CREATED}) — skipping build."
+  warn "This may be testing a stale binary. To force a rebuild: docker rmi ${SENSOR_IMAGE}"
 elif [ "${ARCH}" = "aarch64" ]; then
   docker build --platform linux/arm64 -f Dockerfile.sensor -t "${SENSOR_IMAGE}" .
 else
