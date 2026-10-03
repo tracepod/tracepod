@@ -6,6 +6,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-03
+
 ### Changed
 
 - Standalone quick start now runs `discovery-probe.sh` as step 0 (mirroring
@@ -328,7 +330,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 - `schema_version` changed type from string (`"1"`) to integer (`2`). Consumers
   must treat a string `schema_version` (or its absence) as a legacy v1 profile.
 
-[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/tracepod/tracepod/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/tracepod/tracepod/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/tracepod/tracepod/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/tracepod/tracepod/compare/v0.2.2...v0.2.3
