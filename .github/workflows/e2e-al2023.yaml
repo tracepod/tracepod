@@ -22,10 +22,11 @@ name: E2E (Amazon Linux 2023, x86_64, KVM)
 # infra/lima/al2023-e2e.yaml. That Lima config is an arm64, no-host-mount,
 # locally-provisioned VM that this environment cannot boot or exercise —
 # changing it here would ship untested. The two provisioning recipes are
-# duplicated (CI: x86_64, ssh-driven, ami pinned image, package versions
-# matched to .github/workflows/e2e.yaml; Lima: arm64, limactl provision
-# stanzas). See the PR description for the explicit call to leave
-# al2023-e2e.yaml alone.
+# duplicated (CI: x86_64, ssh-driven, ami pinned image, kubectl/helm/syft
+# pinned to exact versions (see env: below) since this is a REQUIRED check;
+# Lima: arm64, limactl provision stanzas, still floating on "latest" since
+# that rig is a local dev tool, not a merge gate). See the PR description
+# for the explicit call to leave al2023-e2e.yaml alone.
 
 on:
   pull_request:
@@ -65,6 +66,16 @@ env:
   AL2023_IMAGE_SHA256: "163ef5327e8ef4c221ba59173bd765afc60e31fc5c224cb0982498c5c3f970ee"
   KIND_VERSION: "v0.27.0" # matches e2e.yaml / infra/lima/*.yaml
   GO_VERSION: "1.26.0" # matches go.mod (go 1.26) / Dockerfile.sensor default
+  # kubectl/helm/syft: this is about to become a REQUIRED check, so guest
+  # provisioning must not float on "latest" (e2e.yaml and infra/lima/*.yaml
+  # still do, via stable.txt / get-helm-3 / syft's install.sh@main — left
+  # alone there). Pinned to the exact versions the last passing run
+  # (37053286821) resolved at the time: kubectl v1.37.1 (stable.txt),
+  # helm v3.22.0 (latest v3 — not v4; the chart install path here is v3),
+  # syft v1.54.0 (latest).
+  KUBECTL_VERSION: "v1.37.1"
+  HELM_VERSION: "v3.22.0"
+  SYFT_VERSION: "1.54.0"
 
 jobs:
   e2e:
@@ -262,13 +273,22 @@ jobs:
             curl -fsSL -o /tmp/kind https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64
             sudo install -m 0755 /tmp/kind /usr/local/bin/kind
 
-            KUBECTL_VERSION=\$(curl -fsSL https://dl.k8s.io/release/stable.txt)
-            curl -fsSL -o /tmp/kubectl \"https://dl.k8s.io/release/\${KUBECTL_VERSION}/bin/linux/amd64/kubectl\"
+            curl -fsSL -o /tmp/kubectl \"https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl\"
+            curl -fsSL -o /tmp/kubectl.sha256 \"https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256\"
+            echo \"\$(cat /tmp/kubectl.sha256)  /tmp/kubectl\" | sha256sum -c -
             sudo install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
 
-            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash
+            curl -fsSL -o /tmp/helm.tar.gz \"https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz\"
+            curl -fsSL -o /tmp/helm.tar.gz.sha256sum \"https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum\"
+            (cd /tmp && sha256sum -c helm.tar.gz.sha256sum)
+            tar -xzf /tmp/helm.tar.gz -C /tmp
+            sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
 
-            curl -fsSL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin
+            curl -fsSL -o /tmp/syft.tar.gz \"https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz\"
+            curl -fsSL \"https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_checksums.txt\" | grep -E \"syft_${SYFT_VERSION}_linux_amd64\\.tar\\.gz\\\$\" > /tmp/syft.sha256
+            (cd /tmp && sha256sum -c syft.sha256)
+            tar -xzf /tmp/syft.tar.gz -C /tmp syft
+            sudo install -m 0755 /tmp/syft /usr/local/bin/syft
 
             curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | sudo tar -C /usr/local -xz
 
