@@ -20,6 +20,13 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
   nonexistent `@v0`. Added an `action (composite: install + harden build)` CI
   job that runs the action from the PR checkout against a committed fixture
   manifest so this can't silently regress.
+- `docs/KNOWN-LIMITATIONS.md` §1 (NRI startup race) is clarified: the race
+  only affects containers adopted late via NRI `Synchronize`
+  (`coverage.adoption_mode: nri-sync`). Containers adopted via the
+  `StartContainer` hook (`nri-start`, recorded since v0.2.0/schema v5) have
+  the cgroup registered before the workload execs — containerd blocks on the
+  hook — so this gap does not apply to them. The previous text described the
+  race as unconditional.
 
 ## [0.2.3] - 2026-10-03
 
