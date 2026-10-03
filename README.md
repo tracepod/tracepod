@@ -90,9 +90,8 @@ Then restart containerd: `sudo systemctl restart containerd`
 
 Verify:
 ```bash
-grep -E "^\s*disable\s*=" /etc/containerd/config.toml | grep nri
-# Should print:   disable = false
-# (or be absent — NRI is enabled by default in containerd 2.x)
+./hack/discovery-probe.sh
+# exit 0 means NRI is reachable; exit 1 means it's still not enabled
 ```
 
 ## Install
@@ -130,6 +129,25 @@ CGO_ENABLED=0 go build ./cmd/harden/
 > the default), every stopped container produces a manifest.
 
 ```bash
+# 0. Check that a node can actually run the sensor BEFORE installing —
+#    the sensor's only discovery mechanism is containerd's NRI; if it's
+#    unreachable the sensor now refuses to run rather than silently
+#    tracing nothing (see "NRI must be enabled" below).
+#
+#    Directly on the node:
+./hack/discovery-probe.sh
+#
+#    Or via a node-debug pod, if you don't have SSH/node access (the host
+#    filesystem is bind-mounted at /host in the debug pod, not at /, so
+#    HOST_ROOT must be set — see the script's own header for the exact
+#    invocation, bash + socat required):
+#      kubectl debug node/<name> -it --image=ubuntu:24.04 -- bash
+#      # ...then, inside the debug pod: HOST_ROOT=/host bash discovery-probe.sh
+#
+#   exit 0  NRI reachable — the sensor will work
+#   exit 1  NRI unreachable — the sensor would trace nothing (see its remediation output)
+#   exit 2  probe could not run (missing tooling, not Linux)
+
 # 1. Enable NRI in containerd on each node (see Prerequisites above)
 
 # 2. Install the sensor DaemonSet
@@ -234,6 +252,7 @@ docker run --rm myapp:hardened nginx -t
 | `--verbose` | Print full confidence penalty breakdown and ELF audit warnings |
 | `--sbom` | Generate CycloneDX and SPDX SBOMs in the output directory |
 | `--min-profile-duration` | Minimum window for confidence scoring (default: 10m) |
+| `--allow-empty` | Build even when the manifest has zero `direct` (eBPF-observed) entries (default: refuse — see exit code `3` below) |
 
 Run `harden build -help` or `harden extract -help` for the full flag reference.
 
@@ -241,6 +260,7 @@ Run `harden build -help` or `harden extract -help` for the full flag reference.
 - `0` — success
 - `1` — fatal error (missing required flags, pull failed, unresolved ELF dependencies)
 - `2` — non-fatal warning: a scratch-compat file (other than `resolv.conf`) was absent from the source image layers; `resolv.conf` absence is expected and exits `0`
+- `3` — the manifest has zero `direct` (eBPF-observed) entries — the sensor wasn't active or the profiling window captured nothing, and a build from inferred/manual entries alone is very likely broken; pass `--allow-empty` to build anyway
 
 ## Confidence scoring
 
@@ -258,15 +278,19 @@ Confidence:  82/100 (High) — short profiling window; startup race (4 paths)
 
 1. **Is NRI enabled?**
    ```bash
-   grep disable /etc/containerd/config.toml | grep nri
+   ./hack/discovery-probe.sh
    ```
-   Should print `disable = false` or be absent. Restart containerd if you change it.
+   Exit 0 means NRI is reachable. Exit 1 means it's disabled — see its remediation
+   output and `docs/KNOWN-LIMITATIONS.md` §0.6; restart containerd after fixing it.
 
 2. **Is the sensor connected?**
    ```bash
    kubectl logs -n tracepod daemonset/tracepod-sensor | tail -20
    ```
-   Look for `NRI connected`. If absent, the plugin failed to register — NRI is likely disabled.
+   Look for `NRI connected`. If absent, the plugin failed to register — NRI is likely
+   disabled. Outside `--cgroup-path` mode the sensor now exits non-zero in that case, so
+   the pod will be `CrashLoopBackOff`/not Ready instead of running quietly; check
+   `--previous` logs if the container has already restarted.
 
 3. **Was the container started via the CRI?**
    Only containers created by kubelet (Kubernetes pods) or `crictl` are profiled.
