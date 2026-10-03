@@ -95,7 +95,7 @@ jobs:
 
   action-smoke-test:
     # Guards action.yml itself: runs the composite action from this PR's
-    # checkout (uses: ./) against the v0.2.3 release (the latest with a
+    # checkout (uses: ./) against the v0.2.4 release (the latest with a
     # harden asset), so a broken release-asset URL or install step fails CI
     # instead of silently breaking every consumer on their next run.
     name: "action (composite: install + harden build)"
@@ -111,7 +111,7 @@ jobs:
           source: nginx:alpine
           output: /tmp/action-smoke-oci
           smoke-test: 'false' # fixture is a partial profile; not a bootable image
-          version: v0.2.3
+          version: v0.2.4
       - name: Verify outputs were produced
         run: |
           set -euo pipefail
