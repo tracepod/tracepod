@@ -16,6 +16,11 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
   and points at the NRI/readiness checks below it; chart `home:` now points
   to https://tracepod.co.uk instead of the GitHub repo.
 
+### Fixed
+
+- Docs: discovery-probe exit code 2 means the host isn't Linux (it never
+  meant missing tooling — missing socat is a warning).
+
 ## [0.2.5] - 2026-10-03
 
 ### Fixed

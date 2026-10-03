@@ -132,7 +132,7 @@ CGO_ENABLED=0 go build ./cmd/harden/
 # 0. Check that a node can actually run the sensor BEFORE installing —
 #    the sensor's only discovery mechanism is containerd's NRI; if it's
 #    unreachable the sensor now refuses to run rather than silently
-#    tracing nothing (see "NRI must be enabled" below).
+#    tracing nothing (see "NRI must be enabled" above).
 #
 #    Directly on the node:
 ./hack/discovery-probe.sh
@@ -148,7 +148,7 @@ CGO_ENABLED=0 go build ./cmd/harden/
 #
 #   exit 0  NRI reachable — the sensor will work
 #   exit 1  NRI unreachable — the sensor would trace nothing (see its remediation output)
-#   exit 2  probe could not run (missing tooling, not Linux)
+#   exit 2  probe could not run (not a Linux host)
 
 # 1. Enable NRI in containerd on each node (see Prerequisites above)
 
@@ -225,7 +225,7 @@ The sensor can run directly on a Linux host and profile containers started via `
 # 0. Check that this host can actually run the sensor BEFORE installing —
 #    the sensor's only discovery mechanism is containerd's NRI; if it's
 #    unreachable the sensor now refuses to run rather than silently
-#    tracing nothing (see "NRI must be enabled" below).
+#    tracing nothing (see "NRI must be enabled" above).
 #
 #    On a bare host the probe runs directly — no HOST_ROOT needed
 #    (that's only for node-debug pods bind-mounting the host filesystem):
@@ -237,7 +237,7 @@ The sensor can run directly on a Linux host and profile containers started via `
 #
 #   exit 0  NRI reachable — the sensor will work
 #   exit 1  NRI unreachable — the sensor would trace nothing (see its remediation output)
-#   exit 2  probe could not run (missing tooling, not Linux)
+#   exit 2  probe could not run (not a Linux host)
 
 # 1. Enable NRI in containerd (see Prerequisites above)
 
