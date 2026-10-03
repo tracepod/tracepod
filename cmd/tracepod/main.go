@@ -111,10 +111,18 @@ func runProfile(args []string, kubeconfig, ctrlNS string) {
 	}
 }
 
+const (
+	usageProfileList = "Usage: tracepod profile list [--namespace <ns>]\n"
+	usageProfileGet  = "Usage: tracepod profile get --namespace <ns> --deployment <name> [--output <file>]\n"
+	usageProfileStop = "Usage: tracepod profile stop --namespace <ns> --deployment <name>\n"
+)
+
 func runList(args []string, kubeconfig, ctrlNS string) {
-	fs := flag.NewFlagSet("profile list", flag.ExitOnError)
+	fs := flag.NewFlagSet("profile list", flag.ContinueOnError)
 	ns := fs.String("namespace", "", "filter by namespace (default: all)")
-	fs.Parse(args) //nolint:errcheck
+	if err := parseNoPositionals(fs, args); err != nil {
+		exitForArgError(err, usageProfileList)
+	}
 
 	baseURL, cleanup, err := connect(kubeconfig, ctrlNS)
 	if err != nil {
@@ -146,14 +154,16 @@ func runList(args []string, kubeconfig, ctrlNS string) {
 }
 
 func runGet(args []string, kubeconfig, ctrlNS string) {
-	fs := flag.NewFlagSet("profile get", flag.ExitOnError)
+	fs := flag.NewFlagSet("profile get", flag.ContinueOnError)
 	ns := fs.String("namespace", "", "namespace of the deployment (required)")
 	dep := fs.String("deployment", "", "deployment name (required)")
 	output := fs.String("output", "", "write manifest JSON to this file instead of stdout")
-	fs.Parse(args) //nolint:errcheck
+	if err := parseNoPositionals(fs, args); err != nil {
+		exitForArgError(err, usageProfileGet)
+	}
 
 	if *ns == "" || *dep == "" {
-		fmt.Fprintf(os.Stderr, "Usage: tracepod profile get --namespace <ns> --deployment <name> [--output <file>]\n")
+		fmt.Fprint(os.Stderr, usageProfileGet)
 		os.Exit(1)
 	}
 
@@ -182,13 +192,15 @@ func runGet(args []string, kubeconfig, ctrlNS string) {
 }
 
 func runStop(args []string, kubeconfig, ctrlNS string) {
-	fs := flag.NewFlagSet("profile stop", flag.ExitOnError)
+	fs := flag.NewFlagSet("profile stop", flag.ContinueOnError)
 	ns := fs.String("namespace", "", "namespace of the deployment (required)")
 	dep := fs.String("deployment", "", "deployment name (required)")
-	fs.Parse(args) //nolint:errcheck
+	if err := parseNoPositionals(fs, args); err != nil {
+		exitForArgError(err, usageProfileStop)
+	}
 
 	if *ns == "" || *dep == "" {
-		fmt.Fprintf(os.Stderr, "Usage: tracepod profile stop --namespace <ns> --deployment <name>\n")
+		fmt.Fprint(os.Stderr, usageProfileStop)
 		os.Exit(1)
 	}
 

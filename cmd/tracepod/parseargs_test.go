@@ -5,6 +5,7 @@ import (
 	"flag"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -180,4 +181,99 @@ func TestParseCVEReportArgs(t *testing.T) {
 			t.Fatalf("err = %v, want flag.ErrHelp", err)
 		}
 	})
+}
+
+// TestParseNoPositionals covers subcommands that take no positional
+// argument (profile list/get/stop): flags-only input must keep working in
+// any order, and a stray positional — before or after the flags — must be
+// rejected rather than silently truncating flag parsing (the second CLI
+// bug: `tracepod profile list foo --namespace prod` used to drop
+// --namespace).
+func TestParseNoPositionals(t *testing.T) {
+	cases := []struct {
+		name          string
+		args          []string
+		wantNoErr     bool  // true: parseNoPositionals must return nil
+		wantErrIs     error // non-nil: err must satisfy errors.Is(err, wantErrIs)
+		wantPlainErr  bool  // true: err must be non-nil but NOT errUnexpectedArgs/flag.ErrHelp
+		wantErrSubstr string
+		wantNS        string // expected --namespace value after parsing, regardless of outcome
+	}{
+		{
+			name:      "flags only",
+			args:      []string{"--namespace", "prod"},
+			wantNoErr: true,
+			wantNS:    "prod",
+		},
+		{
+			name:      "no args at all",
+			args:      []string{},
+			wantNoErr: true,
+		},
+		{
+			name:          "stray positional after flags",
+			args:          []string{"--namespace", "prod", "foo"},
+			wantErrIs:     errUnexpectedArgs,
+			wantErrSubstr: `"foo"`,
+			wantNS:        "prod", // the flag was parsed before the positional was rejected
+		},
+		{
+			name:          "stray positional before flags",
+			args:          []string{"foo", "--namespace", "prod"},
+			wantErrIs:     errUnexpectedArgs,
+			wantErrSubstr: `"foo"`,
+			wantNS:        "prod",
+		},
+		{
+			name:          "stray positional only",
+			args:          []string{"foo"},
+			wantErrIs:     errUnexpectedArgs,
+			wantErrSubstr: `"foo"`,
+		},
+		{
+			name:         "unknown flag",
+			args:         []string{"--nope"},
+			wantPlainErr: true,
+		},
+		{
+			name:      "help flag",
+			args:      []string{"-h"},
+			wantErrIs: flag.ErrHelp,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := flag.NewFlagSet("test", flag.ContinueOnError)
+			fs.SetOutput(io.Discard)
+			ns := fs.String("namespace", "", "")
+
+			err := parseNoPositionals(fs, tc.args)
+
+			switch {
+			case tc.wantNoErr:
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			case tc.wantPlainErr:
+				if err == nil {
+					t.Fatal("want a plain flag.Parse error, got nil")
+				}
+				if errors.Is(err, errUnexpectedArgs) || errors.Is(err, flag.ErrHelp) {
+					t.Fatalf("err = %v, want a plain flag.Parse failure", err)
+				}
+			case tc.wantErrIs != nil:
+				if !errors.Is(err, tc.wantErrIs) {
+					t.Fatalf("err = %v, want errors.Is(_, %v)", err, tc.wantErrIs)
+				}
+			}
+
+			if tc.wantErrSubstr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErrSubstr)) {
+				t.Errorf("err = %v, want it to contain %q", err, tc.wantErrSubstr)
+			}
+			if *ns != tc.wantNS {
+				t.Errorf("namespace = %q, want %q", *ns, tc.wantNS)
+			}
+		})
+	}
 }
