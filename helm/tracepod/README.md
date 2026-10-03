@@ -20,14 +20,18 @@ at `/var/lib/tracepod/profiles/<container-id>/files.json` on each node.
 
 ## Before you install: verify NRI is enabled
 
-**NRI is required.** Without it the sensor will start and show no errors, but no containers
-will ever be profiled.
+**NRI is required.** Without it the sensor now refuses to run — the pod
+`CrashLoopBackOff`s instead of profiling nothing silently.
 
 ```bash
-# Check NRI configuration on each node:
-grep -E "^\s*disable\s*=" /etc/containerd/config.toml | grep nri
-# Should return:  disable = false
-# (or be absent — NRI is enabled by default in containerd 2.x)
+# Check NRI reachability on each node before installing:
+./hack/discovery-probe.sh
+# exit 0 = NRI reachable; exit 1 = disabled, see its remediation output
+
+# Or, with no node/SSH access, via a node-debug pod — see the script's own
+# header comment for the exact invocation (host filesystem is at /host there,
+# so it needs HOST_ROOT=/host):
+#   kubectl debug node/<name> -it --image=ubuntu:24.04 -- bash
 ```
 
 If NRI is disabled or missing, add it:
@@ -175,8 +179,8 @@ harden build \
 
 1. **Check NRI is enabled** (most common cause):
    ```bash
-   grep -E "^\s*disable\s*=" /etc/containerd/config.toml | grep nri
-   # Must print: disable = false   (or be absent — enabled by default in containerd 2.x)
+   ./hack/discovery-probe.sh
+   # exit 0 = NRI reachable; exit 1 = disabled, see its remediation output
    ```
 
 2. **Check the sensor connected to NRI:**

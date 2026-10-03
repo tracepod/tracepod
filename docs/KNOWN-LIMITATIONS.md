@@ -109,28 +109,45 @@ disabled by default in containerd below 2.0** and is **enabled by default from
 containerd 2.0 onward** (see "Which nodes are affected" below for what that
 means on managed Kubernetes today).
 
-On a node where NRI is off, the sensor starts, fails to connect, prints one
-line to stderr, and keeps running:
+On a node where NRI is off, the sensor starts, fails to connect, and (since
+v0.2.3) refuses to run — unless it was started in manual `--cgroup-path` mode,
+which never depends on NRI and is unaffected by any of this section:
 
 ```
-warn: NRI unavailable (start NRI stub: failed to connect to NRI service:
-dial unix /var/run/nri/nri.sock: connect: connection refused) — no containers will be traced
+fatal: NRI unavailable (start NRI stub: failed to connect to NRI service:
+dial unix /var/run/nri/nri.sock: connect: connection refused) — refusing to run:
+no containers would be traced. Enable NRI in containerd (docs/KNOWN-LIMITATIONS.md
+§0.6) or run hack/discovery-probe.sh on this node.
 ```
 
-The pod stays `READY=true` with zero restarts. The BPF allowlist stays empty, so
-no events are emitted and no profiles are ever produced.
+The container exits non-zero, so the pod is not `READY` and the DaemonSet shows
+it `CrashLoopBackOff` instead of running quietly while tracing nothing. Once NRI
+is enabled on the node, the next kubelet-driven restart connects normally and the
+pod recovers on its own — no manual intervention beyond fixing the containerd
+config.
+
+**Before v0.2.3**, the sensor instead warned once to stderr and kept running
+with an empty BPF allowlist, so the pod stayed `READY=true` with zero restarts
+while tracing nothing. If you're running an older sensor image, see the
+historical repro below — it still applies.
 
 ### Risk level
 
-**High, and the danger is the silence rather than the outage.** In a controller
-deployment the dashboard does not go blank — it keeps serving the profiling
-sessions it already had, so the system reads as healthy while observing nothing.
+**Before v0.2.3, this was high risk, and the danger was the silence rather than
+the outage.** In a controller deployment the dashboard did not go blank — it
+kept serving the profiling sessions it already had, so the system read as
+healthy while observing nothing. Since v0.2.3 the pod's own readiness/restart
+state now surfaces the failure (see "What happens" above); a controller
+deployment's dashboard can still read as healthy in the interim (it still only
+reflects sessions already recorded), so `hack/discovery-probe.sh` and watching
+pod readiness remain the authoritative checks, not the dashboard.
 
-Reproduced on 2026-08-15 by setting `disable = true` under
+Before v0.2.3, reproduced on 2026-08-15 by setting `disable = true` under
 `[plugins."io.containerd.nri.v1.nri"]` on a kind node: the sensor pod stayed
 Ready, `/api/v1/health` returned 200, the dashboard summary was byte-identical
-to its pre-break state, and a freshly deployed workload never appeared. This
-is what happens on any node — managed or not — wherever NRI is off.
+to its pre-break state, and a freshly deployed workload never appeared. That
+was what happened on any node — managed or not — wherever NRI was off; as of
+v0.2.3 the pod instead CrashLoopBackOffs on such a node (see "What happens").
 
 ### Which nodes are affected
 
@@ -160,9 +177,14 @@ their own release cadence. Don't rely on this table alone: run
 hack/discovery-probe.sh
 ```
 
-Run it on a node (or as a privileged pod) before deploying. It reports whether
-NRI is reachable and whether the cgroup filesystem preconditions hold, and exits
-non-zero when the sensor would trace nothing.
+Run it on a node before deploying. With no node/SSH access, run it via a
+node-debug pod instead (`kubectl debug node/<name> -it --image=ubuntu:24.04
+-- bash`, then `HOST_ROOT=/host bash discovery-probe.sh` inside — the debug
+pod's own `/sys`/`/proc` reflect the pod, not the host; the host filesystem is
+bind-mounted at `/host` instead, see the script's own header for the exact
+invocation). It reports whether NRI is reachable and whether the cgroup
+filesystem preconditions hold, and exits non-zero when the sensor would trace
+nothing.
 
 ### Current workaround
 

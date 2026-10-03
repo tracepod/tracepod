@@ -5,18 +5,43 @@
 # default below containerd 2.0; managed node pools on containerd 2.x images
 # (current EKS AL2023, AKS Ubuntu 24.04, AKS Azure Linux 3.0) have it on by
 # default, while older images (e.g. AKS Ubuntu 22.04, containerd 1.7) still
-# ship it off. On a node where it's off, the sensor starts, warns once to
-# stderr, stays READY, and traces nothing — see docs/KNOWN-LIMITATIONS.md
-# §0.6. This script turns that silent condition into an answer you get
-# BEFORE deploying.
+# ship it off. On a node where it's off, the sensor now refuses to run (exits
+# non-zero, CrashLoopBackOffs) rather than tracing nothing silently — see
+# docs/KNOWN-LIMITATIONS.md §0.6. This script turns that into an answer you
+# get BEFORE deploying.
 #
 # It also measures the preconditions a future cgroupfs-based fallback would
 # need, so the viability question on hardened node OSes (Bottlerocket, SELinux)
 # can be settled with data rather than assumption.
 #
 # Usage:
-#   ./hack/discovery-probe.sh                  # run directly on a node
-#   kubectl debug node/<name> -it --image=... -- /bin/sh   # then run it there
+#   ./hack/discovery-probe.sh                        # run directly on a node
+#
+#   # Or via a node-debug pod (no SSH access to the node required). The debug
+#   # pod's own /sys and /proc reflect ONLY the container, not the host — the
+#   # host filesystem is bind-mounted at /host instead — so HOST_ROOT must be
+#   # set, and the image needs bash + socat (not just /bin/sh):
+#   kubectl debug node/<name> -it --image=ubuntu:24.04 -- bash
+#   # inside the debug pod:
+#   apt-get update -qq && apt-get install -y -qq curl socat
+#   curl -fsSLO https://raw.githubusercontent.com/tracepod/tracepod/main/hack/discovery-probe.sh
+#   HOST_ROOT=/host bash discovery-probe.sh
+#
+# Environment variables:
+#   HOST_ROOT          prefix for CGROUP_ROOT/NRI_SOCKET/CONTAINERD_CONFIG
+#                      defaults (default: "", i.e. run directly on the node).
+#                      Set to /host when run from a node-debug pod. The BTF
+#                      check always reads the container's own /sys — BTF is
+#                      global kernel state, not namespaced, so it needs no
+#                      prefix even under HOST_ROOT.
+#   CGROUP_ROOT        override the full path (default: $HOST_ROOT/sys/fs/cgroup)
+#   NRI_SOCKET         override the full path (default: $HOST_ROOT/run/nri/nri.sock —
+#                      /run, not /var/run: /var/run is itself a symlink to /run on
+#                      Debian/Ubuntu-family nodes (including kind's), and an absolute
+#                      symlink target escapes the $HOST_ROOT prefix on resolution, so
+#                      $HOST_ROOT/var/run/... silently resolves to the DEBUG POD's own
+#                      /run instead of the host's — confirmed against a live kind node)
+#   CONTAINERD_CONFIG  override the full path (default: $HOST_ROOT/etc/containerd/config.toml)
 #
 # Exit codes:
 #   0  NRI reachable — the sensor will work
@@ -27,9 +52,10 @@
 
 set -uo pipefail
 
-CGROUP_ROOT="${CGROUP_ROOT:-/sys/fs/cgroup}"
-NRI_SOCKET="${NRI_SOCKET:-/var/run/nri/nri.sock}"
-CONTAINERD_CONFIG="${CONTAINERD_CONFIG:-/etc/containerd/config.toml}"
+HOST_ROOT="${HOST_ROOT:-}"
+CGROUP_ROOT="${CGROUP_ROOT:-${HOST_ROOT}/sys/fs/cgroup}"
+NRI_SOCKET="${NRI_SOCKET:-${HOST_ROOT}/run/nri/nri.sock}"
+CONTAINERD_CONFIG="${CONTAINERD_CONFIG:-${HOST_ROOT}/etc/containerd/config.toml}"
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   G=$'\033[0;32m'; Y=$'\033[0;33m'; R=$'\033[0;31m'; B=$'\033[1m'; N=$'\033[0m'
