@@ -1,0 +1,55 @@
+{
+  "schema_version": 5,
+  "container_id": "actionfixture0000000000000000000000000000000000000000000000000",
+  "image_ref": "nginx:alpine",
+  "profile_start": "2026-01-01T00:00:00Z",
+  "profile_end": "2026-01-01T00:01:00Z",
+  "profile_terminal": true,
+  "coverage": {
+    "process_start_observed": true,
+    "attach_time": "2026-01-01T00:00:00Z",
+    "first_exec_time": "2026-01-01T00:00:00.001Z",
+    "adoption_mode": "nri-start"
+  },
+  "container_starts": [
+    {
+      "container_id": "actionfixture0000000000000000000000000000000000000000000000000",
+      "timestamp": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "event_loss": {
+    "total": 0,
+    "by_stage": {
+      "bpf_reserve_failed": 0,
+      "decode_failed": 0,
+      "untracked_cgroup": 0
+    },
+    "tolerated": {
+      "path_read_failed": 0
+    },
+    "not_instrumented": []
+  },
+  "files": {
+    "/usr/sbin/nginx": {
+      "source": "direct",
+      "access_modes": ["x"],
+      "first_seen": "2026-01-01T00:00:00.001Z",
+      "last_seen": "2026-01-01T00:00:00.001Z",
+      "count": 1
+    },
+    "/etc/nginx/nginx.conf": {
+      "source": "direct",
+      "access_modes": ["r"],
+      "first_seen": "2026-01-01T00:00:00.002Z",
+      "last_seen": "2026-01-01T00:00:00.002Z",
+      "count": 1
+    },
+    "/etc/nginx/mime.types": {
+      "source": "direct",
+      "access_modes": ["r"],
+      "first_seen": "2026-01-01T00:00:00.003Z",
+      "last_seen": "2026-01-01T00:00:00.003Z",
+      "count": 1
+    }
+  }
+}

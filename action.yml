@@ -3,7 +3,7 @@
 # Profile your app during CI e2e tests (or bring a recorded profile), then
 # harden, smoke-test, and SBOM the image as part of the release pipeline:
 #
-#   - uses: tracepod/tracepod@v0
+#   - uses: tracepod/tracepod@v0.2.4
 #     with:
 #       manifest: profiles/app/files.json
 #       source: ghcr.io/acme/app:${{ github.sha }}
@@ -65,33 +65,64 @@ runs:
   steps:
     - name: Install tracepod harden
       shell: bash
+      env:
+        VERSION_INPUT: ${{ inputs.version }}
       run: |
         set -euo pipefail
-        VERSION="${{ inputs.version }}"
+        VERSION="$VERSION_INPUT"
         if [ "$VERSION" = "latest" ]; then
-          VERSION=$(curl -fsSL https://api.github.com/repos/tracepod/tracepod/releases/latest | jq -r .tag_name)
+          # Resolve the "latest" release via the redirect from /releases/latest
+          # rather than the GitHub API — avoids the unauthenticated 60/hr rate
+          # limit on shared runner IPs and the jq dependency.
+          LATEST_URL=$(curl -fsSLo /dev/null -w '%{url_effective}' \
+            https://github.com/tracepod/tracepod/releases/latest)
+          VERSION="${LATEST_URL##*/}"
+          case "$VERSION" in
+            v*) ;;
+            *) echo "error: could not resolve latest release tag (got $LATEST_URL)" >&2; exit 1 ;;
+          esac
         fi
         ARCH=$(uname -m); case "$ARCH" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; esac
-        curl -fsSL "https://github.com/tracepod/tracepod/releases/download/${VERSION}/tracepod_${VERSION#v}_linux_${ARCH}.tar.gz" \
+        curl -fsSL "https://github.com/tracepod/tracepod/releases/download/${VERSION}/tracepod_harden_${VERSION#v}_linux_${ARCH}.tar.gz" \
           | tar -xz harden
         sudo install harden /usr/local/bin/harden
         harden version || true
 
     - name: Install syft (SBOM)
       shell: bash
+      env:
+        SYFT_VERSION: '1.54.0' # keep in sync with .github/workflows/e2e-al2023.yaml
       run: |
-        command -v syft >/dev/null || \
-          curl -fsSL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin
+        set -euo pipefail
+        if command -v syft >/dev/null; then
+          exit 0
+        fi
+        ARCH=$(uname -m); case "$ARCH" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; esac
+        curl -fsSL -o "/tmp/syft_${SYFT_VERSION}_linux_${ARCH}.tar.gz" \
+          "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_${ARCH}.tar.gz"
+        curl -fsSL "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_checksums.txt" \
+          | grep -E "syft_${SYFT_VERSION}_linux_${ARCH}\.tar\.gz\$" > /tmp/syft.sha256
+        (cd /tmp && sha256sum -c syft.sha256)
+        tar -xzf "/tmp/syft_${SYFT_VERSION}_linux_${ARCH}.tar.gz" -C /tmp syft
+        sudo install -m 0755 /tmp/syft /usr/local/bin/syft
 
     - name: Harden
       shell: bash
+      env:
+        IN_MANIFEST: ${{ inputs.manifest }}
+        IN_SOURCE: ${{ inputs.source }}
+        IN_OUTPUT: ${{ inputs.output }}
+        IN_PLATFORM: ${{ inputs.platform }}
+        IN_PUSH: ${{ inputs.push }}
+        IN_SMOKE_TEST: ${{ inputs.smoke-test }}
+        IN_INCLUDE: ${{ inputs.include }}
       run: |
         set -euo pipefail
-        ARGS=(--manifest "${{ inputs.manifest }}" --source "${{ inputs.source }}" \
-              --output "${{ inputs.output }}" --platform "${{ inputs.platform }}" --sbom)
-        if [ -n "${{ inputs.push }}" ]; then ARGS+=(--push "${{ inputs.push }}"); fi
-        if [ "${{ inputs.smoke-test }}" = "true" ]; then ARGS+=(--smoke-test); fi
+        ARGS=(--manifest "$IN_MANIFEST" --source "$IN_SOURCE" \
+              --output "$IN_OUTPUT" --platform "$IN_PLATFORM" --sbom)
+        if [ -n "$IN_PUSH" ]; then ARGS+=(--push "$IN_PUSH"); fi
+        if [ "$IN_SMOKE_TEST" = "true" ]; then ARGS+=(--smoke-test); fi
         while IFS= read -r p; do
           [ -n "$p" ] && ARGS+=(--include "$p")
-        done <<< "${{ inputs.include }}"
+        done <<< "$IN_INCLUDE"
         harden build "${ARGS[@]}"
