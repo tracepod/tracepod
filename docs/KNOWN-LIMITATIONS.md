@@ -245,11 +245,18 @@ would actually need this fallback keeps shrinking.
 
 ### What happens
 
-The NRI `StartContainer` hook fires _after_ the container's init process has already exec'd.
-The application's master process opens files during its own startup sequence — pid file,
-log directories, cache directories, config files opened before the first worker fork — before
-the cgroup ID is registered in the eBPF allowlist. Those `openat` events are discarded
+For a container adopted late — via the NRI `Synchronize` hook (`coverage.adoption_mode:
+nri-sync`), because it was already running when the sensor started or restarted — the
+cgroup ID is registered in the eBPF allowlist only after the container's init process has
+already exec'd. The application's master process opens files during its own startup
+sequence — pid file, log directories, cache directories, config files opened before the
+first worker fork — before that registration happens. Those `openat` events are discarded
 in-kernel and never reach the ring buffer or the manifest.
+
+Since v0.2.0, a container adopted via the NRI `StartContainer` hook (`coverage.adoption_mode:
+nri-start`) does not have this gap: containerd blocks on the hook, so the sensor registers
+the cgroup before the workload is signalled to exec. The timeline and affected-paths table
+below describe the `nri-sync` (late-adoption) case.
 
 Timeline for nginx:
 
@@ -262,24 +269,24 @@ containerd: container init exec'd
   → nginx master opens /run/nginx.pid
   → nginx master opens /var/log/nginx/access.log, /var/log/nginx/error.log
   → nginx master creates /var/cache/nginx/{client,proxy,fastcgi,uwsgi,scgi}_temp/
-  → NRI StartContainer callback fires  ←── cgroup registered here
+  → NRI Synchronize adoption fires  ←── cgroup registered here (late-adopted container only)
   → sensor begins recording events
 ```
 
-Everything opened before the `StartContainer` callback is invisible to the sensor.
+Everything opened before `Synchronize` adopts the container is invisible to the sensor.
 For images with a shell entrypoint script, this is the **entire entrypoint phase** —
 not just the application's init, but the interpreter, the entrypoint script itself,
 and every tool it calls.
 
-Known affected paths for `nginx:1.25-alpine`:
+Known affected paths for `nginx:1.25-alpine` when adopted this way:
 
 | Path | Why it's missed |
 |------|----------------|
-| `/docker-entrypoint.sh` | Entrypoint script exec'd before NRI fires |
-| `/docker-entrypoint.d/` (all scripts) | Sub-scripts run by entrypoint before NRI fires |
+| `/docker-entrypoint.sh` | Entrypoint script exec'd before adoption |
+| `/docker-entrypoint.d/` (all scripts) | Sub-scripts run by entrypoint before adoption |
 | `/bin/sh` | Shell interpreter for the entrypoint |
 | `/bin/grep`, `/bin/sed`, `/bin/touch`, etc. | Busybox tools called by entrypoint scripts |
-| `/run/nginx.pid` | Pid file written by master before NRI fires |
+| `/run/nginx.pid` | Pid file written by master before adoption |
 | `/var/run` | Symlink `/var/run → /run`; needed for pid file path |
 | `/var/log/nginx/access.log` | Opened by master before first worker forks |
 | `/var/log/nginx/error.log` | Same as above |
@@ -303,8 +310,9 @@ the container ever serves traffic.
 
 ### Now machine-detectable (schema v2)
 
-The race still exists — nothing below eliminates it — but as of profile schema v2
-it is **machine-detectable per container**. The sensor records its cgroup attach
+The race still exists for late-adopted (`nri-sync`) containers — nothing below
+eliminates it for them — but as of profile schema v2 it is **machine-detectable
+per container**. The sensor records its cgroup attach
 time and the container's first observed exec, and emits a
 `coverage.process_start_observed` marker in the profile. It is `true` only when
 the sensor attached via the NRI `StartContainer` hook (before the runtime started

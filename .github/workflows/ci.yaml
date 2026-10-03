@@ -92,3 +92,30 @@ jobs:
         with:
           version: latest
           args: build --snapshot --clean --id tracepod
+
+  action-smoke-test:
+    # Guards action.yml itself: runs the composite action from this PR's
+    # checkout (uses: ./) against the v0.2.3 release (the latest with a
+    # harden asset), so a broken release-asset URL or install step fails CI
+    # instead of silently breaking every consumer on their next run.
+    name: "action (composite: install + harden build)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Tracepod Harden action
+        id: harden
+        uses: ./
+        with:
+          manifest: testdata/action-fixtures/nginx-alpine.json
+          source: nginx:alpine
+          output: /tmp/action-smoke-oci
+          smoke-test: 'false' # fixture is a partial profile; not a bootable image
+          version: v0.2.3
+      - name: Verify outputs were produced
+        run: |
+          set -euo pipefail
+          test -f "${{ steps.harden.outputs.oci-path }}/index.json"
+          test -f "${{ steps.harden.outputs.sbom-cyclonedx }}"
+          test -f "${{ steps.harden.outputs.sbom-spdx }}"
+          echo "action outputs verified: oci-path, sbom-cyclonedx, sbom-spdx all present"
