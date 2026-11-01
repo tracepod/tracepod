@@ -42,6 +42,16 @@
 //	                         With --controller-url and no pod metadata, the
 //	                         profile is not POSTed — this flag is a standalone/
 //	                         debug mode, not a K8s adoption path.
+//	--snapshot-interval <d>  while a container runs, POST a cumulative interim
+//	                         profile snapshot (profile_terminal=false) to
+//	                         --controller-url every <d>, in addition to the
+//	                         terminal POST at container stop. Default 0 (off);
+//	                         otherwise must be >= 10s. Ignored without
+//	                         --controller-url. Only containers whose owning
+//	                         workload is already resolved are posted; each
+//	                         container's first snapshot is offset by a
+//	                         deterministic jitter within the interval. The
+//	                         terminal POST is always the last one for a window.
 //	--verbose                print every file-open event to stderr (very noisy;
 //	                         for debugging only)
 //	--version                print version and exit
@@ -99,7 +109,12 @@ func main() {
 	ringbufBytes := flag.Uint("ringbuf-bytes", 0, "override events ring-buffer size in bytes (0=default 256KB; power of two, page-multiple). Test-only: a tiny value forces event loss for the induced-loss schema-v3 fixture")
 	postUnownedNS := flag.String("post-unowned-pods-namespace", "", "POST profiles for pods with no tracked workload owner in this ONE namespace, keyed by pod name (used for the controller's sandbox validation namespace)")
 	traceStat := flag.Bool("trace-stat", false, "additionally trace stat-family existence checks (vfs_fstatat kprobe; access mode \"s\", schema v4). Higher event volume — watch event_loss counters")
+	snapshotInterval := flag.Duration("snapshot-interval", 0, "while a container runs, POST a cumulative non-terminal profile snapshot at this interval (requires --controller-url; 0 disables; minimum 10s)")
 	flag.Parse()
+
+	if err := validateSnapshotInterval(*snapshotInterval); err != nil {
+		log.Fatalf("%v", err)
+	}
 
 	if *showVersion {
 		fmt.Printf("sensor version %s (commit %s)\n", version, commit)
@@ -127,6 +142,15 @@ func main() {
 	// router dispatches ring buffer events to the right per-container aggregator.
 	router := newRouter(p, *profileDir, *controllerURL, *nodeName, resolver, *verbose)
 	router.postUnownedNS = *postUnownedNS
+	stopSnapshots := func() {}
+	switch {
+	case *snapshotInterval > 0 && *controllerURL == "":
+		fmt.Fprintln(os.Stderr, "sensor: --snapshot-interval ignored: it requires --controller-url")
+	case *snapshotInterval > 0:
+		router.snapshotInterval = *snapshotInterval
+		stopSnapshots = router.startSnapshots()
+		fmt.Fprintf(os.Stderr, "sensor: interim snapshots enabled every %s\n", *snapshotInterval)
+	}
 
 	// The consumer must exist before the NRI plugin starts: plugin.Start() runs
 	// the Synchronize hook, which adopts already-running containers and creates
@@ -174,6 +198,8 @@ func main() {
 	go func() {
 		<-sig
 		fmt.Fprintln(os.Stderr, "sensor: signal received — flushing in-flight profiles")
+		// Stop the interim loop first so no interim POST can follow the flush.
+		stopSnapshots()
 		router.flushAll()
 		p.Close()
 	}()
@@ -203,6 +229,11 @@ type cgroupRouter struct {
 	postUnownedNS string
 	resolver      sensor.WorkloadResolver // nil in standalone mode
 	verbose       bool
+
+	// snapshotInterval enables interim snapshots when > 0 (see snapshot.go).
+	// now is the clock used for snapshot scheduling; nil means time.Now.
+	snapshotInterval time.Duration
+	now              func() time.Time
 
 	// allower retires cgroups from the in-kernel allowlist. Held as an interface
 	// (satisfied by *probe.Probe) so the shutdown-deny ordering is unit-testable
@@ -302,6 +333,18 @@ type postTarget struct {
 	// moments after starting still gets its start-time resolution (OSS-5: the
 	// live fallback is the path that races pod/ReplicaSet GC).
 	resolveDone chan struct{}
+
+	// postMu serialises every POST for this container (interim and terminal) and
+	// the snapshot taken for it, so snapshots reach the controller in increasing
+	// profile_end order and the final flush is always the last one sent.
+	// closed is set (under postMu) by flush; once set no interim POST may start.
+	postMu sync.Mutex
+	closed bool
+
+	// nextSnapshotAt schedules the next interim snapshot; lastFailLog rate-limits
+	// the failure log. Both are guarded by the router mutex.
+	nextSnapshotAt time.Time
+	lastFailLog    time.Time
 }
 
 // bpfLossStats reads the in-kernel per-CPU loss counters, guarding a nil probe
@@ -396,6 +439,9 @@ func (r *cgroupRouter) onContainerStart(info container.StartInfo) {
 	agg.SetLossReader(r)
 
 	target := &postTarget{containerID: info.ContainerID, pod: info.Pod}
+	if r.snapshotInterval > 0 {
+		target.nextSnapshotAt = r.clock().Add(snapshotJitter(info.ContainerID, r.snapshotInterval))
+	}
 
 	r.mu.Lock()
 	r.aggs[info.CgroupID] = agg
@@ -480,6 +526,12 @@ func (r *cgroupRouter) onContainerStop(containerID string, cgroupID uint64, pod 
 // partial data beats none — but it is labelled so consumers that treat "files
 // not opened" as evidence can refuse it.
 func (r *cgroupRouter) flush(agg *manifest.Aggregator, target *postTarget, terminal bool) {
+	// Serialise with any in-flight interim POST and bar further ones: the target
+	// has already left the router maps, so this flush is the last word.
+	target.postMu.Lock()
+	defer target.postMu.Unlock()
+	target.closed = true
+
 	snap := agg.Snapshot()
 	if terminal {
 		snap = agg.SnapshotFinal()
@@ -564,16 +616,26 @@ func (r *cgroupRouter) flush(agg *manifest.Aggregator, target *postTarget, termi
 	// Ensure the image ref is on the snapshot.
 	if imageRef != "" {
 		agg.SetImageRef(imageRef)
-		snap = agg.Snapshot()
+		snap.ImageRef = imageRef // keep this snapshot: re-taking would drop the terminal flag
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := r.postSnapshot(context.Background(), target, dep, imageRef, snap); err != nil {
+		fmt.Fprintf(os.Stderr, "sensor: POST to controller failed: %v\n", err)
+	}
+}
+
+// postSnapshot POSTs one snapshot for target to the controller with a 10s
+// timeout (bounded further by ctx) and logs success. It is shared by the
+// terminal/shutdown flush and the interim loop so URL, timeout and success
+// logging live in one place; the caller logs failures.
+func (r *cgroupRouter) postSnapshot(ctx context.Context, target *postTarget, dep, imageRef string, snap manifest.Manifest) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := sensor.PostProfile(ctx, r.controllerURL, target.pod.Namespace, dep, target.pod.Name, r.nodeName, snap); err != nil {
-		fmt.Fprintf(os.Stderr, "sensor: POST to controller failed: %v\n", err)
-	} else {
-		fmt.Fprintf(os.Stderr, "sensor: profile posted → %s/%s image=%s\n", target.pod.Namespace, dep, imageRef)
+		return err
 	}
+	fmt.Fprintf(os.Stderr, "sensor: profile posted → %s/%s image=%s\n", target.pod.Namespace, dep, imageRef)
+	return nil
 }
 
 // flushAll snapshots and POSTs/writes every currently-tracked container. It is
