@@ -594,7 +594,7 @@ func expandSymlinkTargets(m *manifest.Manifest, stagingDir string) {
 	for {
 		added := 0
 		for path := range m.Files {
-			src := filepath.Join(stagingDir, path)
+			src := inRootHostPath(stagingDir, path)
 			info, err := os.Lstat(src)
 			if err != nil || info.Mode()&os.ModeSymlink == 0 {
 				continue
@@ -611,7 +611,7 @@ func expandSymlinkTargets(m *manifest.Manifest, stagingDir string) {
 			if _, ok := m.Files[absTarget]; ok {
 				continue
 			}
-			if _, err := os.Lstat(filepath.Join(stagingDir, absTarget)); err != nil {
+			if _, err := os.Lstat(inRootHostPath(stagingDir, absTarget)); err != nil {
 				continue // target absent from staging dir — broken symlink, skip
 			}
 			m.Files[absTarget] = manifest.FileEntry{
@@ -657,7 +657,7 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 		}
 
 		entry := m.Files[path]
-		src := filepath.Join(stagingDir, path)
+		src := inRootHostPath(stagingDir, path)
 		info, err := os.Lstat(src)
 		if os.IsNotExist(err) {
 			tarPath := strings.TrimPrefix(path, "/")
