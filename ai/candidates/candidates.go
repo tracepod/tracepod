@@ -19,16 +19,21 @@ import (
 // Entry mirrors one element of the "files" array of an inventory document.
 type Entry struct {
 	Path       string `json:"path"`
-	Type       string `json:"type"` // file | dir | symlink | other
+	Type       string `json:"type,omitempty"` // file | dir | symlink | other; empty when not in the source image
 	LinkTarget string `json:"link_target,omitempty"`
 	InHardened bool   `json:"in_hardened"`
+	// InSource is false for paths that exist only in the hardened image
+	// (version 2 documents). LoadInventory sets it for version 1 documents,
+	// which list source paths only.
+	InSource bool `json:"in_source"`
 }
 
-// InventoryVersion is the only supported document version.
-const InventoryVersion = 1
+// InventoryVersion is the newest supported document version. Versions
+// 1..InventoryVersion are accepted.
+const InventoryVersion = 2
 
-// LoadInventory decodes {"version":1,"files":[...]}. Other versions are an
-// error.
+// LoadInventory decodes {"version":N,"files":[...]} for N in
+// 1..InventoryVersion. Other versions are an error.
 func LoadInventory(r io.Reader) ([]Entry, error) {
 	var doc struct {
 		Version int     `json:"version"`
@@ -37,8 +42,13 @@ func LoadInventory(r io.Reader) ([]Entry, error) {
 	if err := json.NewDecoder(r).Decode(&doc); err != nil {
 		return nil, fmt.Errorf("decoding inventory: %w", err)
 	}
-	if doc.Version != InventoryVersion {
-		return nil, fmt.Errorf("unsupported inventory version %d (want %d)", doc.Version, InventoryVersion)
+	if doc.Version < 1 || doc.Version > InventoryVersion {
+		return nil, fmt.Errorf("unsupported inventory version %d (supported: 1..%d)", doc.Version, InventoryVersion)
+	}
+	if doc.Version == 1 {
+		for i := range doc.Files {
+			doc.Files[i].InSource = true
+		}
 	}
 	return doc.Files, nil
 }

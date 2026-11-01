@@ -206,10 +206,16 @@ func runBuild(args []string) int {
 			if invPath == "" {
 				invPath = filepath.Join(*outputDir, hardener.InventoryFilename)
 			}
-			kept := 0
+			source, kept, added := 0, 0, 0
 			for _, e := range result.Inventory {
-				if e.InHardened {
+				switch {
+				case e.InSource && e.InHardened:
+					source++
 					kept++
+				case e.InSource:
+					source++
+				case e.InHardened:
+					added++
 				}
 			}
 			if werr := hardener.WriteInventory(invPath, hardener.InventoryFile{
@@ -221,7 +227,7 @@ func runBuild(args []string) int {
 				fmt.Fprintf(os.Stderr, "error: %v\n", werr)
 				return 1
 			}
-			fmt.Printf("Inventory:   %d paths, %d in hardened image (%s)\n", len(result.Inventory), kept, invPath)
+			fmt.Printf("Inventory:   %d source paths, %d kept, %d only in hardened image (%s)\n", source, kept, added, invPath)
 		}
 	}
 

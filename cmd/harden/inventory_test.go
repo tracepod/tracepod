@@ -118,7 +118,7 @@ func TestHardenBuild_InventoryDefaultAndOverride(t *testing.T) {
 		out := t.TempDir()
 		runTinyBuild(t, ref, out)
 		f := readInventory(t, filepath.Join(out, "inventory.json"))
-		if f.Version != 1 {
+		if f.Version != hardener.InventoryVersion || !f.DescribesHardenedTree() {
 			t.Errorf("version = %d", f.Version)
 		}
 		if f.HardenedDigest != layoutDigest(t, out).String() {
@@ -133,6 +133,9 @@ func TestHardenBuild_InventoryDefaultAndOverride(t *testing.T) {
 		}
 		if !got["/bin/app"].InHardened || !got["/bin"].InHardened {
 			t.Error("retained file and parent dir must be in_hardened")
+		}
+		if e := got["/bin/app"]; !e.InSource || e.HardenedType != hardener.InventoryTypeFile {
+			t.Errorf("/bin/app = %+v", e)
 		}
 		if got["/bin/unused"].InHardened || got["/etc-passwd"].InHardened {
 			t.Error("unobserved files must not be in_hardened")

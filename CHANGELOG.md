@@ -6,6 +6,20 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The file inventory written by `harden build` (`inventory.json`, and
+  `BuildResult.Inventory`) now describes the hardened tree as well as the source
+  tree (inventory version 2). The hardened tree is read back from the built layer.
+  New per-entry fields: `in_source`, `hardened_type`, `hardened_link_target`.
+  Paths that exist only in the hardened layer are listed (with `in_source:
+  false`), for example the real `/lib` directory and `/lib/<arch>/libc.so.6`
+  produced when a merged-`/usr` image's `/lib -> usr/lib` is accessed through
+  the symlink. `in_hardened` is now true whenever the path exists in the layer,
+  whatever its type there. `type` is omitted for hardened-only entries.
+  `hardener.ReadInventory` / `hardener.DecodeInventory` read versions 1 and 2;
+  `ai/candidates.LoadInventory` accepts both.
+
 ### Added
 
 - Optional AI helper packages, inert unless explicitly configured. `ai` is a

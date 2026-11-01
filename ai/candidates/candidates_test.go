@@ -232,10 +232,22 @@ func TestEvidenceTruncated(t *testing.T) {
 
 func TestLoadInventory(t *testing.T) {
 	es, err := LoadInventory(strings.NewReader(`{"version":1,"files":[{"path":"/a","type":"file","in_hardened":false},{"path":"/l","type":"symlink","link_target":"a","in_hardened":true}]}`))
-	if err != nil || len(es) != 2 || es[1].LinkTarget != "a" || !es[1].InHardened {
+	if err != nil || len(es) != 2 || es[1].LinkTarget != "a" || !es[1].InHardened || !es[0].InSource || !es[1].InSource {
 		t.Fatalf("got %+v, %v", es, err)
 	}
-	for _, bad := range []string{`{"version":2,"files":[]}`, `{"files":[]}`, `not json`} {
+	// Version 2 lists hardened-only paths too; they are never candidates.
+	es, err = LoadInventory(strings.NewReader(`{"version":2,"files":[
+		{"path":"/lib","type":"symlink","link_target":"usr/lib","in_hardened":true,"in_source":true,"hardened_type":"dir"},
+		{"path":"/lib/libz.so.1","in_hardened":true,"in_source":false,"hardened_type":"file"},
+		{"path":"/usr/lib/libz.so.1","type":"file","in_hardened":false,"in_source":true}]}`))
+	if err != nil || len(es) != 3 || es[1].InSource || !es[2].InSource {
+		t.Fatalf("v2: got %+v, %v", es, err)
+	}
+	got := Generate(es, `error: "/usr/lib/libz.so.1" not found; "/lib/libz.so.1" missing`, Options{})
+	if len(got) != 1 || got[0].Path != "/usr/lib/libz.so.1" {
+		t.Fatalf("v2 candidates: %+v", got)
+	}
+	for _, bad := range []string{`{"version":0,"files":[]}`, `{"version":3,"files":[]}`, `{"files":[]}`, `not json`} {
 		if _, err := LoadInventory(strings.NewReader(bad)); err == nil {
 			t.Errorf("%q: want error", bad)
 		}
@@ -247,8 +259,9 @@ func TestLoadsHardenerInventory(t *testing.T) {
 	doc := hardener.InventoryFile{
 		Version: hardener.InventoryVersion,
 		Files: []hardener.InventoryEntry{
-			{Path: "/usr/lib/libz.so.1", Type: hardener.InventoryTypeSymlink, LinkTarget: "libz.so.1.3", InHardened: false},
-			{Path: "/usr/lib/libz.so.1.3", Type: hardener.InventoryTypeFile},
+			{Path: "/usr/lib/libz.so.1", Type: hardener.InventoryTypeSymlink, LinkTarget: "libz.so.1.3", InHardened: false, InSource: true},
+			{Path: "/usr/lib/libz.so.1.3", Type: hardener.InventoryTypeFile, InSource: true},
+			{Path: "/lib/libz.so.1", InHardened: true, HardenedType: hardener.InventoryTypeFile},
 		},
 	}
 	b, err := json.Marshal(doc)
@@ -256,7 +269,7 @@ func TestLoadsHardenerInventory(t *testing.T) {
 		t.Fatal(err)
 	}
 	es, err := LoadInventory(strings.NewReader(string(b)))
-	if err != nil || len(es) != 2 || es[0].LinkTarget != "libz.so.1.3" {
+	if err != nil || len(es) != 3 || es[0].LinkTarget != "libz.so.1.3" || !es[0].InSource || es[2].InSource {
 		t.Fatalf("got %+v, %v", es, err)
 	}
 }

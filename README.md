@@ -294,28 +294,44 @@ Run `harden build -help` or `harden extract -help` for the full flag reference.
 
 Every `harden build` records a file inventory and writes it to
 `<output>/inventory.json` (override with `--inventory-out <path>`, disable with
-`--no-inventory`). It lists every path in the source image filesystem (after
-layer whiteouts are applied) and whether the hardened image keeps it:
+`--no-inventory`). It describes both the source image filesystem (after layer
+whiteouts are applied) and the hardened image layer, so every path that exists in
+either tree is listed once with what it is in each:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "source_digest": "sha256:...",
   "hardened_digest": "sha256:...",
   "files": [
-    {"path": "/bin", "type": "dir", "in_hardened": true},
-    {"path": "/bin/sh", "type": "symlink", "link_target": "busybox", "in_hardened": false}
+    {"path": "/bin", "type": "symlink", "link_target": "usr/bin", "in_hardened": true, "in_source": true, "hardened_type": "dir"},
+    {"path": "/bin/app", "in_hardened": true, "in_source": false, "hardened_type": "file"},
+    {"path": "/usr/bin/app", "type": "file", "in_hardened": false, "in_source": true},
+    {"path": "/usr/bin/sh", "type": "symlink", "link_target": "busybox", "in_hardened": false, "in_source": true}
   ]
 }
 ```
 
 - `path` is absolute in the image, `/`-rooted, with no trailing slash; entries are sorted by `path`.
+- `in_source` is true when the path exists in the source image. `type` and `link_target`
+  describe it there and are omitted when it does not.
 - `type` is `file`, `dir`, `symlink` or `other` (device, fifo, socket). Hardlinks are
   extracted as regular files and reported as `file`.
 - `link_target` is the raw link value (relative or absolute, never resolved); symlinks only.
-- `in_hardened` is true when the path is in the hardened layer. A directory counts when it
-  is kept itself or contains a kept path. Files created by `--mkdir`/`--touch` or added as
-  scratch compatibility fabrications are not listed, since they are not in the source.
+- `in_hardened` is true when the path exists in the hardened layer, and `hardened_type` /
+  `hardened_link_target` describe it there. The hardened tree is read back from the built
+  layer itself. It can differ from the source tree: the layer writes each kept path under
+  the name it was accessed by and creates its parent directories as real directories, so
+  on a merged-`/usr` image a library opened as `/lib/x/libc.so.6` is kept as
+  `/lib/x/libc.so.6` with `/lib` a directory, while the source has `/lib -> usr/lib` and
+  the file at `/usr/lib/x/libc.so.6`. Paths created by `--mkdir`/`--touch` and the parent
+  directories of every kept path are listed as hardened-only entries.
+
+Version 1 documents (written by earlier releases) list source paths only, without
+`in_source`, `hardened_type` or `hardened_link_target`; `in_hardened` there means the exact
+path is in the layer, and a directory counts when it contains a kept path.
+`hardener.ReadInventory` / `hardener.DecodeInventory` read both versions and set
+`in_source` for version 1 entries; `InventoryFile.DescribesHardenedTree` tells them apart.
 
 A failure to collect the inventory only prints a warning; the build still succeeds. A
 failure to write the file exits non-zero. Library callers opt in with
