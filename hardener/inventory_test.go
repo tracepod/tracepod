@@ -24,12 +24,33 @@ import (
 	"github.com/tracepod/tracepod/manifest"
 )
 
-func set(paths ...string) map[string]struct{} {
-	s := make(map[string]struct{}, len(paths))
-	for _, p := range paths {
-		s[p] = struct{}{}
+// layerFor builds the hardened layer for retained (each a direct manifest
+// entry) from the source tree at root with the real layer writer and returns
+// the tree a runtime would extract from it.
+func layerFor(t *testing.T, root string, retained ...string) layerTree {
+	t.Helper()
+	m := &manifest.Manifest{Files: map[string]manifest.FileEntry{}}
+	for _, p := range retained {
+		m.Files[p] = manifest.FileEntry{Source: manifest.SourceDirect}
 	}
-	return s
+	return layerForManifest(t, root, m)
+}
+
+func layerForManifest(t *testing.T, root string, m *manifest.Manifest) layerTree {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := writeTarEntries(tw, m, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := readLayerTree(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tree
 }
 
 func byPath(entries []InventoryEntry) map[string]InventoryEntry {
@@ -63,7 +84,7 @@ func TestCollectInventory_TypesAndOrdering(t *testing.T) {
 		t.Skipf("mkfifo unsupported: %v", err)
 	}
 
-	got, err := collectInventory(root, set("/bin/app"))
+	got, err := collectInventory(root, layerFor(t, root, "/bin/app"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +124,7 @@ func TestCollectInventory_AncestorDirsInHardened(t *testing.T) {
 	writeTreeFile(t, root, "usr/lib/other/f", "x")
 	writeTreeFile(t, root, "usr/share/doc/readme", "x")
 
-	got, err := collectInventory(root, set("/usr/lib/x86/deep/lib.so"))
+	got, err := collectInventory(root, layerFor(t, root, "/usr/lib/x86/deep/lib.so"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,21 +141,45 @@ func TestCollectInventory_AncestorDirsInHardened(t *testing.T) {
 	}
 }
 
-func TestCollectInventory_EnsureEntriesNotListed(t *testing.T) {
+// Paths absent from the source tree appear only as far as the hardened layer
+// actually holds them: ensure entries and the parent directories the layer
+// synthesises for every manifest path are hardened-only entries; probes of
+// missing files and fabrications the layer skips are not listed at all.
+func TestCollectInventory_HardenedOnlyEntries(t *testing.T) {
 	root := t.TempDir()
 	writeTreeFile(t, root, "bin/app", "x")
-	got, err := collectInventory(root, set("/bin/app", "/run/app.pid", "/var/cache/tmp", "/etc/fabricated"))
+	m := &manifest.Manifest{Files: map[string]manifest.FileEntry{
+		"/bin/app":        {Source: manifest.SourceDirect},
+		"/run/app.pid":    {Source: manifest.SourceDirect}, // ENOENT probe
+		"/var/cache/tmp":  {Source: manifest.SourceEnsureDir},
+		"/etc/app.conf":   {Source: manifest.SourceEnsureFile},
+		"/etc/fabricated": {Source: manifest.SourceManual}, // absent, skipped by the layer
+	}}
+	got, err := collectInventory(root, layerForManifest(t, root, m))
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := byPath(got)
-	if len(got) != 2 {
-		t.Fatalf("got %d entries, want 2 (/bin, /bin/app): %+v", len(got), got)
-	}
-	for _, p := range []string{"/run", "/run/app.pid", "/var", "/var/cache/tmp", "/etc/fabricated"} {
-		if _, ok := m[p]; ok {
-			t.Errorf("%s must not be listed (absent from source tree)", p)
+	inv := byPath(got)
+	for p, typ := range map[string]string{
+		"/run": "dir", "/var": "dir", "/var/cache": "dir", "/var/cache/tmp": "dir",
+		"/etc": "dir", "/etc/app.conf": "file",
+	} {
+		e, ok := inv[p]
+		if !ok {
+			t.Errorf("%s missing", p)
+			continue
 		}
+		if e.InSource || e.Type != "" || !e.InHardened || e.HardenedType != typ {
+			t.Errorf("%s = %+v, want hardened-only %s", p, e, typ)
+		}
+	}
+	for _, p := range []string{"/run/app.pid", "/etc/fabricated"} {
+		if _, ok := inv[p]; ok {
+			t.Errorf("%s must not be listed (in neither tree)", p)
+		}
+	}
+	if e := inv["/bin/app"]; !e.InSource || !e.InHardened || e.Type != "file" || e.HardenedType != "file" {
+		t.Errorf("/bin/app = %+v", e)
 	}
 }
 
@@ -153,7 +198,7 @@ func TestCollectInventory_SymlinkTarget(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := collectInventory(root, set())
+	got, err := collectInventory(root, layerTree{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +230,7 @@ func TestCollectInventory_HardlinksAreFiles(t *testing.T) {
 	if err := os.Link(filepath.Join(root, "bin/busybox"), filepath.Join(root, "bin/sh")); err != nil {
 		t.Fatal(err)
 	}
-	got, err := collectInventory(root, set("/bin/busybox"))
+	got, err := collectInventory(root, layerFor(t, root, "/bin/busybox"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,11 +244,11 @@ func TestCollectInventory_HardlinksAreFiles(t *testing.T) {
 }
 
 func TestCollectInventory_EmptyTreeAndMissingRoot(t *testing.T) {
-	got, err := collectInventory(t.TempDir(), set())
+	got, err := collectInventory(t.TempDir(), layerTree{})
 	if err != nil || got == nil || len(got) != 0 {
 		t.Fatalf("empty tree: got %v, %v", got, err)
 	}
-	if _, err := collectInventory(filepath.Join(t.TempDir(), "nope"), set()); err == nil {
+	if _, err := collectInventory(filepath.Join(t.TempDir(), "nope"), layerTree{}); err == nil {
 		t.Fatal("expected error for missing root")
 	}
 }
@@ -212,8 +257,11 @@ func TestInventoryFile_JSONContract(t *testing.T) {
 	in := InventoryFile{
 		Version: InventoryVersion, SourceDigest: "sha256:aa", HardenedDigest: "sha256:bb",
 		Files: []InventoryEntry{
-			{Path: "/bin", Type: "dir", InHardened: true},
-			{Path: "/bin/sh", Type: "symlink", LinkTarget: "busybox", InHardened: false},
+			{Path: "/bin", Type: "dir", InSource: true, InHardened: true, HardenedType: "dir"},
+			{Path: "/bin/sh", Type: "symlink", LinkTarget: "busybox", InSource: true, InHardened: false},
+			{Path: "/lib", Type: "symlink", LinkTarget: "usr/lib", InSource: true, InHardened: true, HardenedType: "dir"},
+			{Path: "/lib/libc.so.6", InHardened: true, HardenedType: "file"},
+			{Path: "/sbin", InHardened: true, HardenedType: "symlink", HardenedLinkTarget: "bin"},
 		},
 	}
 	path := filepath.Join(t.TempDir(), "sub", "dir", "inv.json")
@@ -221,7 +269,7 @@ func TestInventoryFile_JSONContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(path)
-	if !bytes.HasPrefix(raw, []byte("{\n  \"version\": 1,")) || !bytes.HasSuffix(raw, []byte("}\n")) {
+	if !bytes.HasPrefix(raw, []byte("{\n  \"version\": 2,")) || !bytes.HasSuffix(raw, []byte("}\n")) {
 		t.Errorf("unexpected formatting:\n%s", raw)
 	}
 	var generic map[string]any
@@ -240,11 +288,36 @@ func TestInventoryFile_JSONContract(t *testing.T) {
 	if files[1].(map[string]any)["link_target"] != "busybox" {
 		t.Error("link_target missing for symlink")
 	}
-	if files[0].(map[string]any)["in_hardened"] != true || files[1].(map[string]any)["in_hardened"] != false {
-		t.Error("in_hardened must always be present")
+	for i, f := range files {
+		obj := f.(map[string]any)
+		for _, k := range []string{"path", "in_hardened", "in_source"} {
+			if _, ok := obj[k]; !ok {
+				t.Errorf("files[%d]: %q must always be present", i, k)
+			}
+		}
 	}
-	var out InventoryFile
-	if err := json.Unmarshal(raw, &out); err != nil {
+	if files[0].(map[string]any)["in_hardened"] != true || files[1].(map[string]any)["in_hardened"] != false {
+		t.Error("in_hardened value wrong")
+	}
+	if _, has := files[1].(map[string]any)["hardened_type"]; has {
+		t.Error("hardened_type must be omitted for paths absent from the hardened layer")
+	}
+	lib := files[2].(map[string]any)
+	if lib["type"] != "symlink" || lib["link_target"] != "usr/lib" || lib["hardened_type"] != "dir" {
+		t.Errorf("source symlink materialised as a directory: %v", lib)
+	}
+	if _, has := lib["hardened_link_target"]; has {
+		t.Error("hardened_link_target must be omitted for non-symlinks")
+	}
+	libc := files[3].(map[string]any)
+	if _, has := libc["type"]; has || libc["in_source"] != false || libc["hardened_type"] != "file" {
+		t.Errorf("hardened-only entry: %v", libc)
+	}
+	if sb := files[4].(map[string]any); sb["hardened_link_target"] != "bin" || sb["hardened_type"] != "symlink" {
+		t.Errorf("hardened-only symlink: %v", sb)
+	}
+	out, err := ReadInventory(path)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(in, out) {
@@ -253,7 +326,7 @@ func TestInventoryFile_JSONContract(t *testing.T) {
 
 	// nil Files serialises as [] not null.
 	p2 := filepath.Join(t.TempDir(), "e.json")
-	if err := WriteInventory(p2, InventoryFile{Version: 1}); err != nil {
+	if err := WriteInventory(p2, InventoryFile{Version: InventoryVersion}); err != nil {
 		t.Fatal(err)
 	}
 	raw2, _ := os.ReadFile(p2)
@@ -414,11 +487,22 @@ func TestBuildImage_InventoryOptIn(t *testing.T) {
 		t.Errorf("broken = %+v", e)
 	}
 
-	// in_hardened non-dir entries match the layer contents.
+	// Every source entry is flagged in_source.
+	for _, p := range []string{"/bin", "/bin/app", "/bin/sh", "/etc/passwd", "/usr/share/doc.txt"} {
+		if !inv[p].InSource {
+			t.Errorf("%s: in_source = false", p)
+		}
+	}
+
+	// in_hardened non-dir entries match the layer contents exactly, with the
+	// layer's own type.
 	layerFiles := layerNonDirPaths(t, outDir)
 	kept := 0
 	for _, e := range on.Inventory {
-		if e.InHardened && e.Type != "dir" {
+		if e.InHardened != (e.HardenedType != "") {
+			t.Errorf("%s: in_hardened=%v but hardened_type=%q", e.Path, e.InHardened, e.HardenedType)
+		}
+		if e.InHardened && e.HardenedType != "dir" {
 			kept++
 			if !layerFiles[e.Path] {
 				t.Errorf("%s in_hardened but not in layer", e.Path)

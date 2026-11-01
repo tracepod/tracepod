@@ -68,6 +68,6 @@ path-segment 60, stem 40; symlink targets follow their link). A model may only
 select among these paths, never invent new ones.
 
 ```go
-entries, _ := candidates.LoadInventory(f) // {"version":1,"files":[...]}
+entries, _ := candidates.LoadInventory(f) // {"version":2,"files":[...]} (version 1 is also accepted)
 cands := candidates.Generate(entries, logs, candidates.Options{Max: 50})
 ```
