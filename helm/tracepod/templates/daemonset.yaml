@@ -42,6 +42,9 @@ spec:
           {{- if .Values.sensor.traceStat }}
           - --trace-stat
           {{- end }}
+          {{- if .Values.sensor.snapshotInterval }}
+          - --snapshot-interval={{ .Values.sensor.snapshotInterval }}
+          {{- end }}
           {{- if .Values.sensor.postUnownedPodsNamespace }}
           - --post-unowned-pods-namespace={{ .Values.sensor.postUnownedPodsNamespace }}
           {{- end }}

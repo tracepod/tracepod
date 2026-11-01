@@ -29,6 +29,13 @@ sensor:
   #   controllerURL: "http://tracepod-controller.tracepod.svc:8080"
   controllerURL: ""
 
+  # snapshotInterval: while a container runs, the sensor POSTs a cumulative
+  # interim profile snapshot (profile_terminal=false) to controllerURL at this
+  # interval, in addition to the terminal POST at container stop. A Go duration
+  # of at least 10s (e.g. "5m"). Empty (default) disables it. Ignored in
+  # standalone mode (controllerURL empty).
+  snapshotInterval: ""
+
   # profileHostPath: node-local directory where profile JSON files are written
   # in standalone mode (controllerURL is empty). One subdirectory per container ID.
   # Ignored when controllerURL is set.

@@ -332,6 +332,40 @@ See [docs/CONFIDENCE.md](docs/CONFIDENCE.md) for the full breakdown.
 Confidence:  82/100 (High) — short profiling window; startup race (4 paths)
 ```
 
+## Interim profile snapshots
+
+By default the sensor reports a container's profile only when the container stops (or when
+the sensor itself shuts down), so a long-running workload reports nothing until it
+restarts. Set `--snapshot-interval` to have the sensor also POST periodic interim snapshots
+to `--controller-url` while the container runs:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--snapshot-interval <duration>` | `0` (off) | POST a cumulative interim profile snapshot for each running container at this interval. Must be `0` or at least `10s`. Requires `--controller-url`; ignored (with a log line) without it. Helm: `sensor.snapshotInterval`. |
+
+Semantics:
+
+- With the flag off (the default) behaviour is unchanged: no extra goroutine, no extra POSTs.
+- Snapshots are **cumulative** for the observation window: every snapshot for a container
+  carries the same `container_id` and `profile_start`, a later `profile_end`, and a file set
+  that only grows. A later snapshot supersedes an earlier one.
+- Interim snapshots have `profile_terminal: false`. The POST at container stop is the only
+  one with `profile_terminal: true`, and it is always the last POST for that window: the
+  sensor serialises a container's POSTs, so a stop waits for any in-flight interim POST and
+  no interim POST starts after it. The shutdown flush on SIGTERM is also non-terminal.
+- Only containers whose owning workload (Deployment/StatefulSet) was resolved at container
+  start are posted. The interim path never does a live Kubernetes lookup and never uses the
+  unowned-pod fallback; those containers are reported at stop as usual.
+- Each container's first snapshot is offset by a deterministic jitter in `[0, interval)`
+  derived from its container ID, so a node's containers do not all POST at once.
+- A failed POST never blocks event processing. It is logged (at most once per container per
+  10 minutes) and the next scheduled snapshot, which is cumulative, supersedes it.
+- Interim snapshots are POSTed only; they are not written to `--profile-dir`.
+- Payload size grows with the number of observed paths (a cumulative snapshot of a large
+  workload can be thousands of entries), so pick an interval accordingly. The receiving
+  endpoint must tolerate repeated POSTs for the same window; a receiver that sums POSTs
+  instead of replacing/merging by `profile_start` will over-count.
+
 ## Troubleshooting
 
 ### No profiles appear after the container stops
@@ -358,8 +392,10 @@ Confidence:  82/100 (High) — short profiling window; startup race (4 paths)
    [Known Limitations](docs/KNOWN-LIMITATIONS.md).
 
 4. **Did the container stop?**
-   Profiles are written when the container stops, not while it is running. The sensor
-   aggregates events during the container's lifetime and flushes them on stop.
+   By default profiles are written when the container stops, not while it is running. The
+   sensor aggregates events during the container's lifetime and flushes them on stop. With
+   `--snapshot-interval` and `--controller-url` it also POSTs interim snapshots while the
+   container runs — see [Interim profile snapshots](#interim-profile-snapshots).
 
 5. **Check which containers the sensor is tracking:**
    ```bash
