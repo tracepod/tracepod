@@ -5,6 +5,7 @@ import (
 	"debug/elf"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -60,11 +61,14 @@ func ResolveELFDependencies(
 	}
 
 	for _, p := range seeds {
-		localPath := filepath.Join(extractedDir, p)
-		if !isELF(localPath) {
+		// Follow links (including directory links such as merged-usr /bin)
+		// inside the image root, so a seed that is a symlink to an ELF
+		// binary has its dependencies resolved too.
+		real, rerr := resolveInRoot(extractedDir, p, maxSymlinkHops)
+		if rerr != nil || !isELF(filepath.Join(extractedDir, real)) {
 			continue
 		}
-		a, u, err := resolver.resolve(localPath, p)
+		a, u, err := resolver.resolve(real, p)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -91,19 +95,20 @@ var standardLibPaths = []string{
 type elfResolver struct {
 	root     string
 	ldPaths  []string
-	visited  map[string]struct{} // absolute paths already resolved (cycle prevention)
+	visited  map[string]struct{} // canonical in-image paths already resolved (cycle prevention)
 	manifest *manifest.Manifest
 }
 
-// resolve resolves all DT_NEEDED entries for the ELF binary at absPath
-// (absolute path on the host, under extractedDir). manifestPath is the
-// absolute-in-image path used as the InferredFrom label.
-func (r *elfResolver) resolve(absPath, manifestPath string) (added, unresolved []string, err error) {
-	if _, seen := r.visited[absPath]; seen {
+// resolve resolves all DT_NEEDED entries for the ELF binary at realPath, a
+// canonical in-image path (no symlinks, as returned by resolveInRoot).
+// manifestPath is the absolute-in-image path used as the InferredFrom label.
+func (r *elfResolver) resolve(realPath, manifestPath string) (added, unresolved []string, err error) {
+	if _, seen := r.visited[realPath]; seen {
 		return nil, nil, nil
 	}
-	r.visited[absPath] = struct{}{}
+	r.visited[realPath] = struct{}{}
 
+	absPath := filepath.Join(r.root, filepath.FromSlash(realPath))
 	f, err := elf.Open(absPath)
 	if err != nil {
 		// Not a valid ELF (e.g. script, data file) — silently skip.
@@ -125,9 +130,9 @@ func (r *elfResolver) resolve(absPath, manifestPath string) (added, unresolved [
 			if _, rerr := prog.ReadAt(buf, 0); rerr == nil {
 				interpPath := strings.TrimRight(string(buf), "\x00")
 				if interpPath != "" {
-					interpHost := filepath.Join(r.root, interpPath)
-					if _, exists := r.manifest.Files[interpPath]; !exists {
-						if _, serr := os.Lstat(interpHost); serr == nil {
+					interpReal, ierr := resolveInRoot(r.root, interpPath, maxSymlinkHops)
+					if ierr == nil {
+						if _, exists := r.manifest.Files[interpPath]; !exists {
 							r.manifest.Files[interpPath] = manifest.FileEntry{
 								Source:       manifest.SourceInferredELF,
 								AccessModes:  []manifest.AccessMode{},
@@ -138,10 +143,8 @@ func (r *elfResolver) resolve(absPath, manifestPath string) (added, unresolved [
 							}
 							added = append(added, interpPath)
 						}
-					}
-					// Recurse: the interpreter is itself an ELF that may have deps.
-					if _, seen := r.visited[interpHost]; !seen {
-						a, u, rerr := r.resolve(interpHost, interpPath)
+						// Recurse: the interpreter is itself an ELF that may have deps.
+						a, u, rerr := r.resolve(interpReal, interpPath)
 						if rerr == nil {
 							added = append(added, a...)
 							unresolved = append(unresolved, u...)
@@ -154,13 +157,13 @@ func (r *elfResolver) resolve(absPath, manifestPath string) (added, unresolved [
 	}
 
 	// Build search path list for this binary: RPATH / RUNPATH → ldPaths.
-	searchPaths, err := r.buildSearchPaths(f, absPath)
+	searchPaths, err := r.buildSearchPaths(f, realPath)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	for _, lib := range needed {
-		resolvedAbs, resolvedManifest, err := r.findLib(lib, searchPaths)
+		resolvedReal, resolvedManifest, err := r.findLib(lib, searchPaths)
 		if err != nil {
 			// Could not find the library — record as unresolved, continue.
 			unresolved = append(unresolved, lib)
@@ -182,29 +185,19 @@ func (r *elfResolver) resolve(absPath, manifestPath string) (added, unresolved [
 		}
 
 		// Recurse into the resolved library.
-		a, u, err := r.resolve(resolvedAbs, resolvedManifest)
+		a, u, err := r.resolve(resolvedReal, resolvedManifest)
 		if err != nil {
 			return nil, nil, err
 		}
 		added = append(added, a...)
 		unresolved = append(unresolved, u...)
 
-		// If the library was reached via a symlink, also include the symlink
-		// itself (e.g. libssl.so → libssl.so.3) and its real target.
-		symlinkAbs := resolvedAbs
-		realAbs, err := filepath.EvalSymlinks(resolvedAbs)
-		if err == nil && realAbs != resolvedAbs {
-			// resolvedAbs is the symlink; realAbs is the target.
-			realRel, relErr := filepath.Rel(r.root, realAbs)
-			if relErr != nil || realRel == ".." || strings.HasPrefix(realRel, ".."+string(filepath.Separator)) {
-				// The symlink resolves outside the extracted tree (e.g. an
-				// absolute in-image symlink followed on the host). It cannot
-				// be represented as an in-image path, so skip it.
-				continue
-			}
-			realManifest := "/" + filepath.ToSlash(realRel)
-			if _, exists := r.manifest.Files[realManifest]; !exists {
-				r.manifest.Files[realManifest] = manifest.FileEntry{
+		// If the library was reached via a symlink (or a directory symlink),
+		// also include its real in-image location (e.g. libssl.so.3 behind
+		// libssl.so).
+		if resolvedReal != resolvedManifest {
+			if _, exists := r.manifest.Files[resolvedReal]; !exists {
+				r.manifest.Files[resolvedReal] = manifest.FileEntry{
 					Source:       manifest.SourceInferredELF,
 					AccessModes:  []manifest.AccessMode{},
 					FirstSeen:    time.Now().UTC(),
@@ -212,11 +205,8 @@ func (r *elfResolver) resolve(absPath, manifestPath string) (added, unresolved [
 					Count:        0,
 					InferredFrom: manifestPath,
 				}
-				added = append(added, realManifest)
+				added = append(added, resolvedReal)
 			}
-			// Mark the symlink target as visited to prevent re-processing.
-			r.visited[realAbs] = struct{}{}
-			_ = symlinkAbs
 		}
 	}
 	return added, unresolved, nil
@@ -230,9 +220,10 @@ func (r *elfResolver) resolve(absPath, manifestPath string) (added, unresolved [
 //  2. DT_RUNPATH.
 //  3. ldPaths   — from ld.so.conf + standard paths.
 //
-// $ORIGIN is substituted with the directory of the ELF binary.
+// $ORIGIN is substituted with the in-image directory of the ELF binary; binPath
+// is a canonical in-image path.
 func (r *elfResolver) buildSearchPaths(f *elf.File, binPath string) ([]string, error) {
-	binDir := filepath.Dir(binPath)
+	binDir := path.Dir(binPath) // in-image directory, so $ORIGIN stays inside the root
 
 	runpaths, err := f.DynString(elf.DT_RUNPATH)
 	if err != nil {
@@ -274,29 +265,21 @@ func (r *elfResolver) resolveOrigin(token, originDir string) string {
 }
 
 // findLib searches for libName in the given ordered search paths (all paths
-// are relative to r.root). Returns the absolute host path and the
-// absolute-in-image manifest path.
-func (r *elfResolver) findLib(libName string, searchPaths []string) (absPath, manifestPath string, err error) {
+// are in-image paths, resolved inside r.root). It returns the canonical
+// in-image path of the library with all symlinks followed (realPath) and the
+// absolute in-image path as found along the search path (manifestPath).
+// A candidate that is dangling or part of a symlink loop is skipped, as the
+// dynamic linker would skip it.
+func (r *elfResolver) findLib(libName string, searchPaths []string) (realPath, manifestPath string, err error) {
 	for _, dir := range searchPaths {
-		// dir may be absolute-in-image (e.g. /usr/lib) or already prefixed.
-		hostDir := filepath.Join(r.root, dir)
-		candidate := filepath.Join(hostDir, libName)
-
-		info, err := os.Lstat(candidate)
-		if err != nil {
+		manifestPath = path.Join("/", filepath.ToSlash(dir), libName)
+		// Resolve the uncleaned path: lexically cleaning ".." before following
+		// directory symlinks would differ from what the dynamic linker does.
+		real, rerr := resolveInRoot(r.root, "/"+filepath.ToSlash(dir)+"/"+libName, maxSymlinkHops)
+		if rerr != nil {
 			continue
 		}
-
-		manifestPath = filepath.Join(dir, libName)
-		if !strings.HasPrefix(manifestPath, "/") {
-			manifestPath = "/" + manifestPath
-		}
-
-		if info.Mode()&os.ModeSymlink != 0 {
-			// Return the symlink path as the primary; the caller follows it.
-			return candidate, manifestPath, nil
-		}
-		return candidate, manifestPath, nil
+		return real, manifestPath, nil
 	}
 	return "", "", fmt.Errorf("library %q not found in search paths", libName)
 }

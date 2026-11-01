@@ -2,7 +2,6 @@ package hardener
 
 import (
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -61,7 +60,7 @@ func ResolveRuntimeCompanions(extractedDir string, m *manifest.Manifest) (added 
 	}
 
 	existsInImage := func(path string) bool {
-		_, err := os.Lstat(filepath.Join(extractedDir, path))
+		_, err := os.Lstat(inRootHostPath(extractedDir, path))
 		return err == nil
 	}
 
