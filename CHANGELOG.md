@@ -15,6 +15,18 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
   `BuildOptions.RecordInventory` and read `BuildResult.Inventory`; a collection
   failure is reported in `BuildResult.InventoryErr` and does not fail the build.
 
+### Fixed
+
+- `harden build` no longer writes host staging-directory paths into the
+  hardened image layer. When the temporary extraction directory was reached
+  through a symlink (macOS `$TMPDIR` under `/var` -> `/private/var`, or any
+  symlinked `TMPDIR`/`--work-dir`), the ELF resolver recorded a followed
+  library symlink target as a host-absolute path, which produced bogus
+  directory entries such as `/private/var/folders/.../tracepod-staging-*/` and
+  dropped the real library target. The staging directory is now canonicalised
+  once, the resolver computes paths relative to the canonical root, and the
+  layer writer fails the build if a manifest path contains the staging directory.
+
 ## [0.2.6] - 2026-10-03
 
 ### Changed

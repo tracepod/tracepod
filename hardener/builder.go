@@ -212,6 +212,14 @@ func BuildImage(
 		return BuildResult{}, fmt.Errorf("create staging dir: %w", err)
 	}
 	defer os.RemoveAll(stagingDir)
+	// Canonicalise once so every later path comparison sees a single form
+	// (e.g. macOS $TMPDIR lives under /var, a symlink to /private/var).
+	rawStagingDir := stagingDir
+	if realStaging, rErr := filepath.EvalSymlinks(stagingDir); rErr == nil {
+		stagingDir = realStaging
+	} else {
+		return BuildResult{}, fmt.Errorf("resolve staging dir: %w", rErr)
+	}
 
 	// Extract the complete image filesystem (all layers). ExtractFromImage
 	// re-pulls the image internally; only the layer blobs are downloaded again
@@ -261,6 +269,12 @@ func BuildImage(
 		before := len(m.Files)
 		ApplyEnsurePaths(opts.EnsurePaths, m)
 		ensuredCount = len(m.Files) - before
+	}
+
+	// Fail fast if any manifest path leaked a host staging path.
+	expandSymlinkTargets(m, stagingDir)
+	if err := checkNoStagingPaths(m, rawStagingDir, stagingDir); err != nil {
+		return BuildResult{}, err
 	}
 
 	// Build a deterministic, gzip-compressed tar layer from the final file set.
@@ -622,6 +636,12 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 	// libz.so.1→libz.so.1.3.1) produce a non-dangling layer.
 	expandSymlinkTargets(m, stagingDir)
 
+	// Defensive: a manifest path that embeds the host staging directory would
+	// be written into the image as a bogus in-image path.
+	if err := checkNoStagingPaths(m, stagingDir); err != nil {
+		return err
+	}
+
 	paths := make([]string, 0, len(m.Files))
 	for p := range m.Files {
 		paths = append(paths, p)
@@ -729,6 +749,32 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 				return fmt.Errorf("tar file body %s: %w", path, err)
 			}
 			f.Close()
+		}
+	}
+	return nil
+}
+
+// checkNoStagingPaths returns an error if any manifest path contains one of the
+// given host staging directories (in any spelling: as given, or with symlinks
+// resolved). Such a path is a host path mistaken for an in-image path and must
+// never reach the layer.
+func checkNoStagingPaths(m *manifest.Manifest, dirs ...string) error {
+	var forms []string
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		forms = append(forms, filepath.Clean(d))
+		if real, err := filepath.EvalSymlinks(d); err == nil {
+			forms = append(forms, real)
+		}
+	}
+	for p := range m.Files {
+		clean := filepath.Clean(p)
+		for _, f := range forms {
+			if strings.Contains(clean, f) {
+				return fmt.Errorf("internal error: manifest path %q contains the host staging directory %q; refusing to write it into the image layer", p, f)
+			}
 		}
 	}
 	return nil

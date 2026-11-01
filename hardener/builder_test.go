@@ -1112,3 +1112,94 @@ func assertTarEntryType(t *testing.T, layerPath, entryName string, wantType byte
 	}
 	t.Errorf("entry %q not found in layer", entryName)
 }
+
+// layerEntryNames returns every entry name in the gzip tar produced by rc.
+func layerEntryNames(t *testing.T, rc io.ReadCloser) []string {
+	t.Helper()
+	defer rc.Close()
+	gr, err := gzip.NewReader(rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	tr := tar.NewReader(gr)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read layer: %v", err)
+		}
+		names = append(names, h.Name)
+	}
+	return names
+}
+
+// TestLayer_SymlinkedStagingRoot runs ELF resolution and layer construction
+// against a staging root reached through a symlink and asserts no layer entry
+// mentions the staging path.
+func TestLayer_SymlinkedStagingRoot(t *testing.T) {
+	root, realRoot := symlinkedDir(t)
+	for _, d := range []string{"usr/bin", "usr/lib"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeDynELF(t, filepath.Join(root, "usr/bin/app"), "libfoo.so.1")
+	writeDynELF(t, filepath.Join(root, "usr/lib/libfoo.so.1.2.3"))
+	if err := os.Symlink("libfoo.so.1.2.3", filepath.Join(root, "usr/lib/libfoo.so.1")); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	m := &manifest.Manifest{
+		SchemaVersion: manifest.SchemaVersion,
+		Files: map[string]manifest.FileEntry{
+			"/usr/bin/app": {Source: manifest.SourceDirect, FirstSeen: now, LastSeen: now, Count: 1},
+		},
+	}
+	if _, _, err := ResolveELFDependencies(root, m); err != nil {
+		t.Fatal(err)
+	}
+	rc, err := buildLayer(m, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := layerEntryNames(t, rc)
+	want := map[string]bool{"usr/bin/app": false, "usr/lib/libfoo.so.1": false, "usr/lib/libfoo.so.1.2.3": false}
+	for _, n := range names {
+		for _, bad := range []string{strings.TrimPrefix(root, "/"), strings.TrimPrefix(realRoot, "/"), "private/", "link/"} {
+			if strings.HasPrefix(n, bad) || strings.Contains(n, bad) {
+				t.Errorf("layer entry %q leaks staging path (%q)", n, bad)
+			}
+		}
+		if _, ok := want[n]; ok {
+			want[n] = true
+		}
+	}
+	for n, ok := range want {
+		if !ok {
+			t.Errorf("layer missing %s; entries=%v", n, names)
+		}
+	}
+}
+
+// TestWriteTarEntries_RejectsStagingPaths checks the defensive guard in the
+// layer writer, for both the symlinked and resolved spellings of the staging dir.
+func TestWriteTarEntries_RejectsStagingPaths(t *testing.T) {
+	link, real := symlinkedDir(t)
+	for _, leaked := range []string{link, real} {
+		m := &manifest.Manifest{Files: map[string]manifest.FileEntry{
+			leaked + "/usr/lib/libfoo.so": {Source: manifest.SourceInferredELF},
+		}}
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
+		err := writeTarEntries(tw, m, link)
+		if err == nil || !strings.Contains(err.Error(), "staging directory") {
+			t.Errorf("leaked=%q: expected staging-directory error, got %v", leaked, err)
+		}
+		if buf.Len() != 0 {
+			t.Errorf("leaked=%q: tar entries were written before the guard fired", leaked)
+		}
+	}
+}
