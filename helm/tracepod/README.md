@@ -98,6 +98,7 @@ kubectl -n tracepod logs daemonset/tracepod-sensor | grep -E "NRI|tracking"
 | `sensor.image.tag` | `""` | Image tag; empty defaults to `v<appVersion>` (currently `v0.2.6`) — override to pin a specific release tag |
 | `sensor.image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `sensor.controllerURL` | `""` | Tracepod controller URL; empty = standalone mode |
+| `sensor.snapshotInterval` | `""` | Go duration (>= `10s`, e.g. `5m`); when set, the sensor POSTs cumulative interim snapshots of running containers to `controllerURL` at this interval. Empty = off. See the main README, "Interim profile snapshots" |
 | `sensor.profileHostPath` | `/var/lib/tracepod/profiles` | Node-local path for profile output (standalone only) |
 | `sensor.resources` | `{}` | Container resource requests/limits |
 | `sensor.nodeSelector` | `{}` | Node selector for the DaemonSet |

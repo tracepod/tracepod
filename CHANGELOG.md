@@ -8,6 +8,14 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Added
 
+- Sensor `--snapshot-interval` (Helm `sensor.snapshotInterval`, off by default,
+  minimum `10s`, requires `--controller-url`): while a container runs, the sensor
+  POSTs cumulative interim profile snapshots (`profile_terminal: false`, same
+  `container_id` and `profile_start`) so long-running workloads report without
+  waiting for a stop. Per-container POSTs are serialised, so the terminal POST
+  at stop is always last; first snapshots are jittered across the interval; only
+  containers with a start-time-resolved owner are posted. The hack/e2e
+  `run-snapshot-e2e.sh` script exercises it on kind.
 - `harden build` now records a file inventory: every path in the source image
   with its type, symlink target and whether it was kept in the hardened image.
   Written to `<output>/inventory.json` by default (`--inventory-out <path>` to
@@ -17,6 +25,10 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Fixed
 
+- The terminal profile POST at container stop was sent with
+  `profile_terminal: false` whenever the workload's image reference was known,
+  because the snapshot was re-taken after the image reference was attached.
+  The terminal flag is now preserved.
 - The ELF dependency resolver now resolves symlinks inside the extracted image
   root instead of on the host. An absolute in-image link (for example
   `/usr/lib/libfoo.so.1 -> /usr/lib/libfoo.so.1.2.3`) or a directory link in the
