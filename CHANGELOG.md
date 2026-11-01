@@ -6,6 +6,17 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Optional AI helper packages, inert unless explicitly configured. `ai` is a
+  provider-agnostic client (`Provider` interface, OpenAI-compatible adapter for
+  vLLM / Ollama / LiteLLM / gateways, JSON-schema-validated `CompleteJSON` with
+  one retry, log redaction); `ai/anthropic` adds Anthropic API, Amazon Bedrock
+  and Google Vertex AI and is linked only into binaries that import it.
+  `ai/candidates` deterministically ranks paths from a build file inventory
+  against workload logs, so a model can only select existing paths. No existing
+  binary imports these packages. See `docs/ai.md`.
+
 ## [0.2.7] - 2026-11-01
 
 ### Added
