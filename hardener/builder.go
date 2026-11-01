@@ -68,6 +68,11 @@ type BuildOptions struct {
 	// entry; files write an empty tar.TypeReg entry (0 bytes). Applied after
 	// IncludePaths. Corresponds to --mkdir / --touch CLI flags.
 	EnsurePaths []EnsureEntry
+
+	// RecordInventory, when true, populates BuildResult.Inventory with every
+	// path of the extracted source filesystem and whether the hardened layer
+	// retains it. Off by default: large images can have 100k+ paths.
+	RecordInventory bool
 }
 
 // BuildResult summarises the image that was produced.
@@ -119,6 +124,14 @@ type BuildResult struct {
 	// RemovalManifestErr records a non-fatal failure to produce the removal
 	// manifest (e.g. syft missing). The image build still succeeded.
 	RemovalManifestErr error
+
+	// Inventory lists every path in the extracted source filesystem (after
+	// whiteouts), sorted by Path. Nil unless BuildOptions.RecordInventory.
+	Inventory []InventoryEntry
+
+	// InventoryErr records a non-fatal failure to collect the inventory. The
+	// image build still succeeded and Inventory is nil.
+	InventoryErr error
 }
 
 // scratchEssentials are files that must be present for a FROM-scratch image to
@@ -338,6 +351,16 @@ func BuildImage(
 	retained := make([]string, 0, len(m.Files))
 	for p := range m.Files {
 		retained = append(retained, p)
+	}
+	if opts.RecordInventory {
+		set := make(map[string]struct{}, len(m.Files))
+		for p := range m.Files {
+			set[p] = struct{}{}
+		}
+		result.Inventory, result.InventoryErr = collectInventory(stagingDir, set)
+		if result.InventoryErr != nil {
+			result.Inventory = nil
+		}
 	}
 	removalManifest, removalErr := GenerateRemovalManifest(ctx, stagingDir, RetainedSetFromKeys(retained), RemovalMeta{
 		SourceDigest:    sourceDigest.String(),
