@@ -352,10 +352,31 @@ func TestBuildImage_ProbeBelowFileKeepsFile(t *testing.T) {
 		"/lib/libc.so",       // reached through a symlink to a directory
 	)
 	outDir := t.TempDir()
-	if _, err := BuildImage(t.Context(), ref, m, outDir, BuildOptions{
+	res, err := BuildImage(t.Context(), ref, m, outDir, BuildOptions{
 		Platform: "linux/amd64", Keychain: NewKeychain(), Insecure: true,
-	}); err != nil {
+		RecordInventory: true,
+	})
+	if err != nil {
 		t.Fatalf("BuildImage: %v", err)
+	}
+	if res.InventoryErr != nil {
+		t.Fatalf("inventory: %v", res.InventoryErr)
+	}
+
+	// The inventory's view of the hardened tree agrees with the layer.
+	inv := map[string]InventoryEntry{}
+	for _, e := range res.Inventory {
+		inv[e.Path] = e
+	}
+	for path, want := range map[string]string{"/x/foo.php": "file", "/x/link": "symlink", "/x/sub": "dir"} {
+		if got := inv[path].HardenedType; got != want {
+			t.Errorf("inventory %s hardened_type = %q, want %q", path, got, want)
+		}
+	}
+	for path, e := range inv {
+		if (strings.HasPrefix(path, "/x/foo.php/") || strings.HasPrefix(path, "/x/link/")) && e.InHardened {
+			t.Errorf("inventory lists %s in the hardened tree", path)
+		}
 	}
 
 	hs := hardenedLayerHeaders(t, outDir)
