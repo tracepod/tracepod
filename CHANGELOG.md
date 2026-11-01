@@ -17,6 +17,19 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Fixed
 
+- The ELF dependency resolver now resolves symlinks inside the extracted image
+  root instead of on the host. An absolute in-image link (for example
+  `/usr/lib/libfoo.so.1 -> /usr/lib/libfoo.so.1.2.3`) or a directory link in the
+  path (merged-usr `/lib -> /usr/lib`) was followed against the host's `/`, so a
+  library's own `DT_NEEDED` entries were read from the wrong file, or skipped
+  when the host had no such path. Library lookup, recursion, visited-set keys,
+  symlink-target expansion, runtime-companion existence checks and layer
+  writing now use a chroot-style resolver (absolute targets re-rooted, `..`
+  clamped at the root, 40-hop loop limit). Seeds that are themselves symlinks to
+  an ELF binary (for example `python3 -> python3.12`) are followed so their
+  dependencies are resolved too, and `$ORIGIN` in `RPATH`/`RUNPATH` is now
+  expanded to the in-image directory. A library that is dangling or in a link
+  loop is reported as unresolved rather than silently accepted.
 - `harden build` no longer writes host staging-directory paths into the
   hardened image layer. When the temporary extraction directory was reached
   through a symlink (macOS `$TMPDIR` under `/var` -> `/private/var`, or any
