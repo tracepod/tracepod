@@ -279,6 +279,8 @@ docker run --rm myapp:hardened nginx -t
 | `--sbom` | Generate CycloneDX and SPDX SBOMs in the output directory |
 | `--min-profile-duration` | Minimum window for confidence scoring (default: 10m) |
 | `--allow-empty` | Build even when the manifest has zero `direct` (eBPF-observed) entries (default: refuse — see exit code `3` below) |
+| `--inventory-out <path>` | Write the file inventory JSON to this path instead of `<output>/inventory.json` |
+| `--no-inventory` | Do not record or write the file inventory |
 
 Run `harden build -help` or `harden extract -help` for the full flag reference.
 
@@ -287,6 +289,38 @@ Run `harden build -help` or `harden extract -help` for the full flag reference.
 - `1` — fatal error (missing required flags, pull failed, unresolved ELF dependencies)
 - `2` — non-fatal warning: a scratch-compat file (other than `resolv.conf`) was absent from the source image layers; `resolv.conf` absence is expected and exits `0`
 - `3` — the manifest has zero `direct` (eBPF-observed) entries — the sensor wasn't active or the profiling window captured nothing, and a build from inferred/manual entries alone is very likely broken; pass `--allow-empty` to build anyway
+
+## File inventory
+
+Every `harden build` records a file inventory and writes it to
+`<output>/inventory.json` (override with `--inventory-out <path>`, disable with
+`--no-inventory`). It lists every path in the source image filesystem (after
+layer whiteouts are applied) and whether the hardened image keeps it:
+
+```json
+{
+  "version": 1,
+  "source_digest": "sha256:...",
+  "hardened_digest": "sha256:...",
+  "files": [
+    {"path": "/bin", "type": "dir", "in_hardened": true},
+    {"path": "/bin/sh", "type": "symlink", "link_target": "busybox", "in_hardened": false}
+  ]
+}
+```
+
+- `path` is absolute in the image, `/`-rooted, with no trailing slash; entries are sorted by `path`.
+- `type` is `file`, `dir`, `symlink` or `other` (device, fifo, socket). Hardlinks are
+  extracted as regular files and reported as `file`.
+- `link_target` is the raw link value (relative or absolute, never resolved); symlinks only.
+- `in_hardened` is true when the path is in the hardened layer. A directory counts when it
+  is kept itself or contains a kept path. Files created by `--mkdir`/`--touch` or added as
+  scratch compatibility fabrications are not listed, since they are not in the source.
+
+A failure to collect the inventory only prints a warning; the build still succeeds. A
+failure to write the file exits non-zero. Library callers opt in with
+`hardener.BuildOptions{RecordInventory: true}` and read `BuildResult.Inventory`
+(`BuildResult.InventoryErr` carries a collection failure).
 
 ## Confidence scoring
 

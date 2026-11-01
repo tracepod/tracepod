@@ -6,6 +6,15 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `harden build` now records a file inventory: every path in the source image
+  with its type, symlink target and whether it was kept in the hardened image.
+  Written to `<output>/inventory.json` by default (`--inventory-out <path>` to
+  override, `--no-inventory` to disable). Library callers opt in with
+  `BuildOptions.RecordInventory` and read `BuildResult.Inventory`; a collection
+  failure is reported in `BuildResult.InventoryErr` and does not fail the build.
+
 ## [0.2.6] - 2026-10-03
 
 ### Changed

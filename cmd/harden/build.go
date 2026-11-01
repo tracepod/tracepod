@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -43,6 +44,8 @@ func runBuild(args []string) int {
 		smokeTest          = fs.Bool("smoke-test", false, "After building, load the image into the local Docker daemon and run it briefly — fails the build if the minimized image cannot boot")
 		smokeWindow        = fs.Duration("smoke-window", 5*time.Second, "How long the smoke-test container must survive (requires --smoke-test)")
 		allowEmpty         = fs.Bool("allow-empty", false, "Build even when the manifest has zero direct (eBPF-observed) entries (default: refuse)")
+		inventoryOut       = fs.String("inventory-out", "", "Write the file inventory JSON to this path (default: <output>/inventory.json)")
+		noInventory        = fs.Bool("no-inventory", false, "Do not record or write the file inventory")
 		includePaths       multiFlag
 		mkdirs             multiFlag
 		touches            multiFlag
@@ -117,6 +120,7 @@ func runBuild(args []string) int {
 		IncludePaths:    includePaths,
 		EnsurePaths:     ensurePaths,
 		HardenerVersion: version,
+		RecordInventory: !*noInventory,
 	}
 
 	result, err := hardener.BuildImage(ctx, *sourceRef, m, *outputDir, opts)
@@ -191,6 +195,33 @@ func runBuild(args []string) int {
 			fmt.Fprintf(os.Stderr, "warning: write removal manifest: %v\n", werr)
 		} else {
 			fmt.Printf("Removed pkgs: %d (%s)\n", len(result.RemovalManifest.Removed), path)
+		}
+	}
+
+	if !*noInventory {
+		if result.InventoryErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: file inventory not produced: %v\n", result.InventoryErr)
+		} else {
+			invPath := *inventoryOut
+			if invPath == "" {
+				invPath = filepath.Join(*outputDir, hardener.InventoryFilename)
+			}
+			kept := 0
+			for _, e := range result.Inventory {
+				if e.InHardened {
+					kept++
+				}
+			}
+			if werr := hardener.WriteInventory(invPath, hardener.InventoryFile{
+				Version:        hardener.InventoryVersion,
+				SourceDigest:   result.SourceDigest.String(),
+				HardenedDigest: result.Digest.String(),
+				Files:          result.Inventory,
+			}); werr != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", werr)
+				return 1
+			}
+			fmt.Printf("Inventory:   %d paths, %d in hardened image (%s)\n", len(result.Inventory), kept, invPath)
 		}
 	}
 
