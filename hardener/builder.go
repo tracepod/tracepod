@@ -367,11 +367,7 @@ func BuildImage(
 		retained = append(retained, p)
 	}
 	if opts.RecordInventory {
-		set := make(map[string]struct{}, len(m.Files))
-		for p := range m.Files {
-			set[p] = struct{}{}
-		}
-		result.Inventory, result.InventoryErr = collectInventory(stagingDir, set)
+		result.Inventory, result.InventoryErr = inventoryForLayer(stagingDir, layer)
 		if result.InventoryErr != nil {
 			result.Inventory = nil
 		}
