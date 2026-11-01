@@ -38,6 +38,14 @@ func ResolveELFDependencies(
 		fmt.Fprintf(os.Stderr, "warning: ld.so.conf parse error: %v; using standard paths\n", err)
 	}
 
+	// Canonicalise the root once: resolved library paths come from
+	// filepath.EvalSymlinks and must share a prefix with root, otherwise a
+	// root reached through a symlink (e.g. macOS /var -> /private/var) yields
+	// host-absolute paths that are mistaken for in-image paths.
+	if real, rErr := filepath.EvalSymlinks(extractedDir); rErr == nil {
+		extractedDir = real
+	}
+
 	resolver := &elfResolver{
 		root:     extractedDir,
 		ldPaths:  append(ldPaths, standardLibPaths...),
@@ -187,7 +195,14 @@ func (r *elfResolver) resolve(absPath, manifestPath string) (added, unresolved [
 		realAbs, err := filepath.EvalSymlinks(resolvedAbs)
 		if err == nil && realAbs != resolvedAbs {
 			// resolvedAbs is the symlink; realAbs is the target.
-			realManifest := "/" + strings.TrimPrefix(realAbs, r.root+"/")
+			realRel, relErr := filepath.Rel(r.root, realAbs)
+			if relErr != nil || realRel == ".." || strings.HasPrefix(realRel, ".."+string(filepath.Separator)) {
+				// The symlink resolves outside the extracted tree (e.g. an
+				// absolute in-image symlink followed on the host). It cannot
+				// be represented as an in-image path, so skip it.
+				continue
+			}
+			realManifest := "/" + filepath.ToSlash(realRel)
 			if _, exists := r.manifest.Files[realManifest]; !exists {
 				r.manifest.Files[realManifest] = manifest.FileEntry{
 					Source:       manifest.SourceInferredELF,
