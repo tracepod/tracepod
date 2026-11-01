@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  # Recovery path: re-create the multi-arch sensor manifest for an already
+  # published release from its existing per-arch images (no rebuild).
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Existing release tag, e.g. v0.2.7'
+        required: true
 
 permissions:
   contents: write   # create GitHub Releases
@@ -13,6 +20,7 @@ jobs:
   # Build and publish Go binary archives + GitHub Release via goreleaser.
   goreleaser:
     name: goreleaser (binaries + release)
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +54,7 @@ jobs:
   # Build and push the amd64 sensor image on a native x86 runner.
   docker-sensor-amd64:
     name: sensor image (amd64)
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,6 +81,7 @@ jobs:
   # Build and push the arm64 sensor image on a native arm64 runner.
   docker-sensor-arm64:
     name: sensor image (arm64)
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +109,10 @@ jobs:
   docker-sensor-manifest:
     name: sensor manifest (multi-arch)
     needs: [docker-sensor-amd64, docker-sensor-arm64]
+    # Runs after both per-arch pushes on a tag, or alone on workflow_dispatch.
+    if: >-
+      !cancelled() && (github.event_name == 'workflow_dispatch' ||
+      (needs.docker-sensor-amd64.result == 'success' && needs.docker-sensor-arm64.result == 'success'))
     runs-on: ubuntu-latest
     steps:
       - name: Log in to GHCR
@@ -108,13 +122,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Create and push sensor manifests
+        # `docker buildx imagetools create` accepts per-arch images that are
+        # themselves OCI indexes (BuildKit attaches provenance attestations by
+        # default); `docker manifest create` rejects them ("is a manifest list").
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          VERSION=${GITHUB_REF_NAME}
-          docker manifest create ghcr.io/tracepod/tracepod-sensor:${VERSION} \
-            ghcr.io/tracepod/tracepod-sensor:${VERSION}-amd64 \
-            ghcr.io/tracepod/tracepod-sensor:${VERSION}-arm64
-          docker manifest push ghcr.io/tracepod/tracepod-sensor:${VERSION}
-          docker manifest create ghcr.io/tracepod/tracepod-sensor:latest \
-            ghcr.io/tracepod/tracepod-sensor:latest-amd64 \
-            ghcr.io/tracepod/tracepod-sensor:latest-arm64
-          docker manifest push ghcr.io/tracepod/tracepod-sensor:latest
+          VERSION=${INPUT_VERSION:-${GITHUB_REF_NAME}}
+          case "$VERSION" in v*.*.*) ;; *) echo "invalid version: $VERSION"; exit 1;; esac
+          IMG=ghcr.io/tracepod/tracepod-sensor
+          docker buildx imagetools create -t "${IMG}:${VERSION}" \
+            "${IMG}:${VERSION}-amd64" "${IMG}:${VERSION}-arm64"
+          docker buildx imagetools create -t "${IMG}:latest" \
+            "${IMG}:${VERSION}-amd64" "${IMG}:${VERSION}-arm64"
+          docker buildx imagetools inspect "${IMG}:${VERSION}"
