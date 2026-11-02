@@ -3,6 +3,7 @@ package hardener
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -96,4 +97,62 @@ func inRootHostPath(root, inImagePath string) string {
 		return filepath.Join(root, filepath.FromSlash(clean))
 	}
 	return filepath.Join(root, filepath.FromSlash(realDir), base)
+}
+
+// nonDirAncestor returns the first proper ancestor of inImagePath that exists
+// in the source tree rooted at root but is not a directory: a regular file, a
+// special file, or a symlink that does not resolve (inside root) to a
+// directory, including a dangling one. It returns "" when every ancestor is a
+// directory, a symlink to a directory, or absent from the source tree (absent
+// ancestors may be created as directories).
+//
+// A path below such an ancestor can never exist in the source image (opening
+// it fails with ENOTDIR), and writing its parents into a layer would replace
+// the ancestor with a directory. verdicts caches the result per ancestor
+// (true = usable as a directory) across calls; it may be nil.
+func nonDirAncestor(root, inImagePath string, verdicts map[string]bool) string {
+	clean := path.Clean("/" + filepath.ToSlash(inImagePath))
+	parts := strings.Split(strings.TrimPrefix(clean, "/"), "/")
+	for i := 1; i < len(parts); i++ {
+		anc := "/" + strings.Join(parts[:i], "/")
+		ok, known := verdicts[anc]
+		if !known {
+			var absent bool
+			ok, absent = ancestorIsDir(root, anc)
+			if absent {
+				return "" // everything below is absent too
+			}
+			if verdicts != nil {
+				verdicts[anc] = ok
+			}
+		}
+		if !ok {
+			return anc
+		}
+	}
+	return ""
+}
+
+// ancestorIsDir reports whether inImagePath can serve as a directory in the
+// source tree, and whether it is absent from it. Its own ancestors must
+// already be known to be directories (or symlinks to directories).
+func ancestorIsDir(root, inImagePath string) (isDir, absent bool) {
+	fi, err := os.Lstat(inRootHostPath(root, inImagePath))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, true
+	case err != nil:
+		return false, false
+	case fi.IsDir():
+		return true, false
+	case fi.Mode()&os.ModeSymlink != 0:
+		resolved, err := resolveInRoot(root, inImagePath, maxSymlinkHops)
+		if err != nil {
+			return false, false // dangling, loop or blocked: keep the link as is
+		}
+		st, err := os.Lstat(filepath.Join(root, filepath.FromSlash(resolved)))
+		return err == nil && st.IsDir(), false
+	default:
+		return false, false
+	}
 }
