@@ -2,8 +2,8 @@ apiVersion: v2
 name: tracepod
 description: eBPF container file profiler for Kubernetes — sensor DaemonSet
 type: application
-version: 0.2.7
-appVersion: "0.2.7"
+version: 0.2.8
+appVersion: "0.2.8"
 keywords:
   - ebpf
   - security
