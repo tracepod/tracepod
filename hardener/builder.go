@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -66,7 +67,9 @@ type BuildOptions struct {
 	// EnsurePaths are paths that must exist in the output OCI layer regardless
 	// of whether they exist in the source image. Directories write a tar.TypeDir
 	// entry; files write an empty tar.TypeReg entry (0 bytes). Applied after
-	// IncludePaths. Corresponds to --mkdir / --touch CLI flags.
+	// IncludePaths. Corresponds to --mkdir / --touch CLI flags. BuildImage
+	// fails when an entry lies beneath a path that is a regular file or a
+	// non-directory symlink in the source image.
 	EnsurePaths []EnsureEntry
 
 	// RecordInventory, when true, populates BuildResult.Inventory with every
@@ -266,6 +269,9 @@ func BuildImage(
 	// These run after directory-inclusion so that source-image files take precedence.
 	var ensuredCount int
 	if len(opts.EnsurePaths) > 0 {
+		if err := checkEnsurePaths(stagingDir, opts.EnsurePaths); err != nil {
+			return BuildResult{}, err
+		}
 		before := len(m.Files)
 		ApplyEnsurePaths(opts.EnsurePaths, m)
 		ensuredCount = len(m.Files) - before
@@ -625,7 +631,9 @@ func expandSymlinkTargets(m *manifest.Manifest, stagingDir string) {
 }
 
 // writeTarEntries writes manifest entries into tw in sorted path order.
-// Parent directories are synthesised before each entry. mtime is zeroed.
+// Parent directories are synthesised before each entry, unless one of them is
+// a non-directory in the source image or in this layer: such an entry is
+// skipped (an error for ensure entries). mtime is zeroed.
 func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) error {
 	// Expand symlink targets before building the sorted path list so that
 	// symlinks pointing to targets absent from the manifest (e.g. python→python3,
@@ -645,14 +653,37 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 	sort.Strings(paths)
 
 	emittedDirs := make(map[string]struct{})
+	// Paths this layer has written as something other than a directory (or a
+	// symlink to one). Nothing may be written beneath them: a later directory
+	// entry for one of them would replace it when the layer is extracted.
+	emittedNonDirs := make(map[string]struct{})
+	parentVerdicts := make(map[string]bool)
 	zeroTime := time.Time{}
 
 	for _, path := range paths {
+		entry := m.Files[path]
+
+		// Only synthesise parents whose source counterparts are directories
+		// (or absent). A path beneath a regular file or a non-directory
+		// symlink, e.g. an observed "foo.php/.htaccess" probe that failed with
+		// ENOTDIR, cannot exist in the source image; writing its parents would
+		// turn the file into a directory.
+		blocker := nonDirAncestor(stagingDir, path, parentVerdicts)
+		if blocker == "" {
+			blocker = layerNonDirAncestor(path, emittedNonDirs)
+		}
+		if blocker != "" {
+			if isEnsureSource(entry.Source) {
+				return fmt.Errorf("%s %s: parent %s is not a directory", ensureFlag(entry.Source), path, blocker)
+			}
+			slog.Debug("hardener: skipping path beneath a non-directory", "path", path, "parent", blocker)
+			continue
+		}
+
 		if err := ensureParentDirs(tw, path, emittedDirs, zeroTime); err != nil {
 			return err
 		}
 
-		entry := m.Files[path]
 		src := inRootHostPath(stagingDir, path)
 		info, err := os.Lstat(src)
 		if os.IsNotExist(err) {
@@ -680,6 +711,7 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 				}); err != nil {
 					return fmt.Errorf("tar ensure-file %s: %w", path, err)
 				}
+				emittedNonDirs[path] = struct{}{}
 			}
 			continue // ENOENT probe or scratch-compat file absent from this image
 		}
@@ -709,6 +741,9 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 				ModTime:  zeroTime,
 			}); err != nil {
 				return fmt.Errorf("tar symlink header %s: %w", path, err)
+			}
+			if isDir, _ := ancestorIsDir(stagingDir, path); !isDir {
+				emittedNonDirs[path] = struct{}{}
 			}
 
 		case info.IsDir():
@@ -745,6 +780,7 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 				return fmt.Errorf("tar file body %s: %w", path, err)
 			}
 			f.Close()
+			emittedNonDirs[path] = struct{}{}
 		}
 	}
 	return nil
@@ -771,6 +807,51 @@ func checkNoStagingPaths(m *manifest.Manifest, dirs ...string) error {
 			if strings.Contains(clean, f) {
 				return fmt.Errorf("internal error: manifest path %q contains the host staging directory %q; refusing to write it into the image layer", p, f)
 			}
+		}
+	}
+	return nil
+}
+
+// layerNonDirAncestor returns the first proper ancestor of p recorded in
+// nonDirs, or "".
+func layerNonDirAncestor(p string, nonDirs map[string]struct{}) string {
+	if len(nonDirs) == 0 {
+		return ""
+	}
+	parts := strings.Split(strings.TrimPrefix(p, "/"), "/")
+	for i := 1; i < len(parts); i++ {
+		anc := "/" + strings.Join(parts[:i], "/")
+		if _, ok := nonDirs[anc]; ok {
+			return anc
+		}
+	}
+	return ""
+}
+
+func isEnsureSource(s manifest.ObservationSource) bool {
+	return s == manifest.SourceEnsureDir || s == manifest.SourceEnsureFile
+}
+
+// ensureFlag names the CLI flag that declares an ensure entry of source s.
+func ensureFlag(s manifest.ObservationSource) string {
+	if s == manifest.SourceEnsureDir {
+		return "--mkdir"
+	}
+	return "--touch"
+}
+
+// checkEnsurePaths rejects ensure entries (--mkdir / --touch) that would have
+// to create a directory where the source image has a regular file or a
+// non-directory symlink: building them would silently replace that file.
+func checkEnsurePaths(stagingDir string, entries []EnsureEntry) error {
+	verdicts := make(map[string]bool)
+	for _, e := range entries {
+		if blocker := nonDirAncestor(stagingDir, e.Path, verdicts); blocker != "" {
+			src := manifest.SourceEnsureFile
+			if e.IsDir {
+				src = manifest.SourceEnsureDir
+			}
+			return fmt.Errorf("%s %s: parent %s is not a directory in the source image", ensureFlag(src), e.Path, blocker)
 		}
 	}
 	return nil

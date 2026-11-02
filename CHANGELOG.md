@@ -31,6 +31,18 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
   against workload logs, so a model can only select existing paths. No existing
   binary imports these packages. See `docs/ai.md`.
 
+### Fixed
+
+- The hardener no longer turns a regular file into a directory when an observed
+  path probes beneath it. A probe such as `/var/www/html/index.php/.htaccess`
+  (it fails with `ENOTDIR` at runtime, but is still recorded) made the layer
+  write `index.php/` as a directory after the real `index.php`, so extracting
+  the image replaced the file with an empty directory. Parent directories are
+  now only synthesised where the source image has a directory (or nothing);
+  paths beneath a regular file or a non-directory symlink are skipped, and
+  `--mkdir` / `--touch` beneath one fail the build with a clear error instead
+  of overwriting it.
+
 ## [0.2.7] - 2026-11-01
 
 ### Added
