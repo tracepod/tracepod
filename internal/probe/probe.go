@@ -160,8 +160,8 @@ var lossStatIndex = []struct {
 	idx   uint32
 	stage string
 }{
-	{0, manifest.LossStageBPFReserveFailed},     // STAT_RESERVE_FAILED   (hard)
-	{1, manifest.ToleratedStagePathReadFailed},  // STAT_PATH_READ_FAILED (tolerated)
+	{0, manifest.LossStageBPFReserveFailed},    // STAT_RESERVE_FAILED   (hard)
+	{1, manifest.ToleratedStagePathReadFailed}, // STAT_PATH_READ_FAILED (tolerated)
 }
 
 // LossStats reads the in-kernel per-CPU event-loss counters and returns the

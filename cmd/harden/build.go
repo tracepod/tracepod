@@ -147,6 +147,10 @@ func runBuild(args []string) int {
 	if result.EnsuredCount > 0 {
 		fmt.Printf("Ensured:     %d explicitly created (--mkdir / --touch)\n", result.EnsuredCount)
 	}
+	if result.SkippedProbePaths > 0 {
+		fmt.Printf("Skipped:     %d observed %s beneath a non-directory (for example \"file.php/.htaccess\"); they cannot exist in the image\n",
+			result.SkippedProbePaths, pluralStr(result.SkippedProbePaths, "path", "paths"))
+	}
 	fmt.Printf("Confidence:  %s\n", formatConfidence(confidence, *verbose))
 	fmt.Printf("Layer:       %s (%s)\n", humanBytes(result.LayerSize), result.LayerDigest)
 	fmt.Printf("OCI layout:  %s\n", *outputDir)
@@ -174,7 +178,7 @@ func runBuild(args []string) int {
 		fmt.Printf("Warning:     %s\n", w)
 	}
 	for _, mp := range result.MissingIncludes {
-		fmt.Printf("Warning:     --include %s: not found in source image (directory may be created at runtime)\n", mp)
+		fmt.Printf("Warning:     --include %s: not found in source image, or lies beneath a file (directory may be created at runtime)\n", mp)
 	}
 	if confidence.Level == manifest.ConfidenceVeryLow {
 		fmt.Printf("Warning:     confidence score is Very Low — image may be missing runtime-critical files; run with --verbose for details\n")
