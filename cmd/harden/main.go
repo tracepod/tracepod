@@ -9,6 +9,11 @@
 //	build    Assemble a FROM-scratch OCI image from a sensor manifest, write it
 //	         as an OCI layout to --output, and optionally push to --push.
 //
+//	explain  Summarise what a build removed and kept (optional model prose).
+//
+//	diagnose Suggest --include flags for a hardened image that fails at
+//	         runtime, from its build inventory and container log.
+//
 //	version  Print version information and exit.
 package main
 
@@ -38,6 +43,10 @@ func main() {
 		os.Exit(runExtract(os.Args[2:]))
 	case "build":
 		os.Exit(runBuild(os.Args[2:]))
+	case "explain":
+		os.Exit(runExplain(os.Args[2:]))
+	case "diagnose":
+		os.Exit(runDiagnose(os.Args[2:]))
 	case "version", "--version", "-version":
 		fmt.Printf("harden version %s (commit %s)\n", version, commit)
 		os.Exit(0)
@@ -54,9 +63,12 @@ func usage() {
 Subcommands:
   build     Build a FROM-scratch OCI image from a sensor manifest (main workflow)
   extract   Pull an image and extract manifest files to disk (for inspection/debugging)
+  explain   Summarise what a build removed and kept
+  diagnose  Suggest --include flags for a hardened image that fails at runtime
   version   Print version information
 
-Run "harden <subcommand> -help" for subcommand flags.
+Run "harden <subcommand> -help" for subcommand flags. explain and diagnose can
+use an optional model (bring your own; off by default): see docs/ai.md.
 
 Exit codes:
   0  Success

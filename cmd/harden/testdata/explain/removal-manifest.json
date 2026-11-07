@@ -1,0 +1,13 @@
+{
+  "schema": "tracepod.dev/removal-manifest",
+  "schema_version": "1.0",
+  "hardened_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "tooling": {"hardener": "test"},
+  "removed": [
+    {"purl": "pkg:apk/alpine/busybox@1.36.1-r29", "name": "busybox", "version": "1.36.1-r29", "paths": ["/bin/busybox", "/bin/sh", "/usr/bin/wget", "/usr/bin/nc"]},
+    {"purl": "pkg:apk/alpine/apk-tools@2.14.4-r1", "name": "apk-tools", "version": "2.14.4-r1", "paths": ["/sbin/apk", "/etc/apk/arch", "/lib/apk/db/installed"]},
+    {"purl": "pkg:apk/alpine/curl@8.9.1-r0", "name": "curl", "version": "8.9.1-r0", "paths": ["/usr/bin/curl"]},
+    {"purl": "pkg:apk/alpine/musl-locales@0.1.0-r1", "name": "musl-locales", "version": "0.1.0-r1", "paths": ["/usr/share/i18n/locales/musl/de_DE.UTF-8", "/usr/share/i18n/locales/musl/fr_FR.UTF-8"]},
+    {"purl": "pkg:pypi/pip@24.0", "name": "pip", "version": "24.0", "paths": ["/usr/lib/python3.12/site-packages/pip/__init__.py", "/usr/lib/python3.12/site-packages/pip/_internal/main.py"]}
+  ]
+}

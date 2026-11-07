@@ -1,0 +1,4 @@
+/docker-entrypoint.sh: Configuration complete; ready for start up
+2026/11/07 08:00:00 [emerg] 1#1: open() "/etc/nginx/mime.types" failed (2: No such file or directory) in /etc/nginx/nginx.conf:15
+nginx: [emerg] open() "/etc/nginx/mime.types" failed (2: No such file or directory) in /etc/nginx/nginx.conf:15
+2026/11/07 08:00:01 [emerg] 1#1: mkdir() "/var/cache/nginx/client_temp" failed (2: No such file or directory)

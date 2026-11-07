@@ -1,10 +1,70 @@
 # Optional AI helpers
 
 `github.com/tracepod/tracepod/ai` is a small, provider-agnostic LLM client for
-optional helpers in `harden`. **Nothing calls a model unless you configure one**:
+the optional helpers in `harden` (`harden explain`, `harden diagnose`). **Nothing calls a model unless you configure one**:
 `ai.New(ai.Config{})` (or `Provider: "off"`) returns a provider whose `Complete`
 returns `ai.ErrDisabled` without touching the network. The sensor does not
 import this package.
+
+## In the `harden` CLI
+
+`harden explain` and `harden diagnose` (see the README) work without a model.
+With one configured, `diagnose` lets it pick among the weaker log matches and
+`explain` adds a short plain-English summary. You bring your own model and
+credentials.
+
+| Variable / flag                              | Meaning |
+|----------------------------------------------|---------|
+| `TRACEPOD_AI_PROVIDER` / `--ai-provider`     | `off` (default), `openai-compatible` or `anthropic` |
+| `TRACEPOD_AI_BASE_URL` / `--ai-base-url`     | OpenAI-compatible endpoint, e.g. `http://localhost:11434/v1`. For `anthropic`, defaults to `https://api.anthropic.com/v1` |
+| `TRACEPOD_AI_MODEL` / `--ai-model`           | Model identifier. Required for `openai-compatible`; `anthropic` defaults to `claude-haiku-5-5` |
+| `TRACEPOD_AI_API_KEY`                        | Sent as a bearer token. For `anthropic`, falls back to `ANTHROPIC_API_KEY` |
+| `--no-ai`                                    | Do not call a model for this run |
+
+- **Off by default.** With no provider set, or with `--no-ai`, the commands make
+  no network calls at all.
+- **Keys come from the environment only.** There is no key flag (a key on the
+  command line ends up in shell history and process listings). Nothing is written
+  to disk.
+- **What is sent.** `diagnose` sends the container log (redacted, at most 16 KB
+  of it) and the candidate list (paths and the matching log lines). It calls the
+  model only when there are weaker matches to rank. `explain` sends only its own
+  deterministic summary (counts, package names, example paths), never file
+  contents. Everything passes through `ai.Redact` first.
+- **Answers are checked.** A `diagnose` answer must pick at most 10 paths, each
+  from the candidate list; otherwise it is retried once and then dropped, and the
+  deterministic suggestions are printed alone. An `explain` summary over 150 words,
+  or one that names a path or quoted name not in the summary it was given, is
+  dropped with a note.
+- **Errors never fail the command.** A refusal, a timeout or an HTTP error prints
+  a note and the deterministic output; the exit code stays 0.
+
+`harden` links only the OpenAI-compatible adapter. The `anthropic` provider uses
+the Anthropic API's OpenAI-compatible endpoint, with the JSON schema given in the
+prompt (answers are validated in Go either way). Linking `ai/anthropic` would add
+about 30 MB to the binary (the Anthropic, AWS and Google SDKs) for Bedrock and
+Vertex AI, so `harden` does not offer those providers directly: put an
+OpenAI-compatible gateway such as LiteLLM in front of them and use
+`openai-compatible`. Programs that import the `ai` package can still use every
+provider below.
+
+Examples:
+
+```bash
+# Ollama
+TRACEPOD_AI_PROVIDER=openai-compatible TRACEPOD_AI_BASE_URL=http://localhost:11434/v1 \
+  TRACEPOD_AI_MODEL=qwen2.5:7b-instruct harden diagnose --output out --log out/smoke.log
+
+# OpenRouter (or any hosted OpenAI-compatible API)
+TRACEPOD_AI_PROVIDER=openai-compatible TRACEPOD_AI_BASE_URL=https://openrouter.ai/api/v1 \
+  TRACEPOD_AI_MODEL=<model id> TRACEPOD_AI_API_KEY=... harden explain --output out
+
+# Anthropic API
+TRACEPOD_AI_PROVIDER=anthropic ANTHROPIC_API_KEY=... harden diagnose --output out --log app.log
+```
+
+Reasoning models count their hidden reasoning against the answer limit; the CLI
+allows 4096 output tokens per call.
 
 ## Providers
 
