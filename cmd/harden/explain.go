@@ -43,16 +43,19 @@ const explainMaxWords = 150
 
 // explainSummary is the deterministic part of `harden explain`.
 type explainSummary struct {
-	Inventory       bool              `json:"inventory"`
-	SourcePaths     int               `json:"source_paths,omitempty"`
-	HardenedPaths   int               `json:"hardened_paths,omitempty"`
-	KeptPaths       int               `json:"kept_paths,omitempty"`
-	AddedPaths      int               `json:"added_paths,omitempty"`
-	RemovedPaths    int               `json:"removed_paths"`
-	RemovedPackages int               `json:"removed_packages"`
-	TopPackages     []explainPackage  `json:"top_removed_packages"`
-	Categories      []explainCategory `json:"categories"`
-	KeptBySource    map[string]int    `json:"kept_by_source,omitempty"`
+	Inventory       bool `json:"inventory"`
+	SourcePaths     int  `json:"source_paths,omitempty"`
+	HardenedPaths   int  `json:"hardened_paths,omitempty"`
+	KeptPaths       int  `json:"kept_paths,omitempty"`
+	AddedPaths      int  `json:"added_paths,omitempty"`
+	RemovedPaths    int  `json:"removed_paths"`
+	RemovedPackages int  `json:"removed_packages"`
+	// UnownedRemoved counts removed paths that no removed package owns
+	// (directories, files of packages that were partly kept, unpackaged files).
+	UnownedRemoved int               `json:"removed_paths_not_in_removed_packages,omitempty"`
+	TopPackages    []explainPackage  `json:"top_removed_packages"`
+	Categories     []explainCategory `json:"categories"`
+	KeptBySource   map[string]int    `json:"kept_by_source,omitempty"`
 }
 
 type explainPackage struct {
@@ -230,6 +233,19 @@ func summarizeBuild(rm *hardener.RemovalManifest, entries []candidates.Entry, m 
 		}
 	}
 	s.RemovedPaths = len(removed)
+	if s.Inventory {
+		owned := map[string]bool{}
+		for _, p := range rm.Removed {
+			for _, path := range p.Paths {
+				owned[path] = true
+			}
+		}
+		for p := range removed {
+			if !owned[p] {
+				s.UnownedRemoved++
+			}
+		}
+	}
 
 	pkgs := make([]explainPackage, 0, len(rm.Removed))
 	for _, p := range rm.Removed {
@@ -366,6 +382,9 @@ func renderExplain(s explainSummary) string {
 		fmt.Fprintf(&b, "  Removed:           %d paths owned by removed packages (no inventory.json; path counts are partial)\n", s.RemovedPaths)
 	}
 	fmt.Fprintf(&b, "  Removed packages:  %d\n", s.RemovedPackages)
+	if s.UnownedRemoved > 0 {
+		fmt.Fprintf(&b, "  Removed paths not owned by a removed package: %d (directories, files of partly kept packages, unpackaged files)\n", s.UnownedRemoved)
+	}
 
 	if len(s.TopPackages) > 0 {
 		fmt.Fprintf(&b, "\nLargest removed packages (by path count):\n")

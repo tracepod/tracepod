@@ -3,6 +3,7 @@ Build summary
   Hardened image:    5 paths (4 kept from the source, 1 added)
   Removed:           20 paths
   Removed packages:  5
+  Removed paths not owned by a removed package: 8 (directories, files of partly kept packages, unpackaged files)
 
 Largest removed packages (by path count):
   busybox 1.36.1-r29     4 paths

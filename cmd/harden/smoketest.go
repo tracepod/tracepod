@@ -32,6 +32,10 @@ const smokeLogMaxBytes = 200 * 1024
 // running (or exited 0) at the end of the window. On failure the container log
 // is written to logPath (when non-empty) before returning.
 func runSmokeTest(ctx context.Context, ociDir, tag string, graceWindow time.Duration, logPath string) error {
+	// A log from an earlier failed run in the same directory is stale.
+	if logPath != "" {
+		_ = os.Remove(logPath)
+	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		return fmt.Errorf("docker not found in PATH (required for --smoke-test): %w", err)
 	}

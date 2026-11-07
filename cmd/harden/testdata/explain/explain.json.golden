@@ -7,6 +7,7 @@
     "added_paths": 1,
     "removed_paths": 20,
     "removed_packages": 5,
+    "removed_paths_not_in_removed_packages": 8,
     "top_removed_packages": [
       {
         "name": "busybox",
