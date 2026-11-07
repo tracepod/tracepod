@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,18 @@ type multiFlag []string
 
 func (f *multiFlag) String() string     { return strings.Join(*f, ", ") }
 func (f *multiFlag) Set(s string) error { *f = append(*f, s); return nil }
+
+// writeMissingIncludeWarnings prints one Warning line per --include path that
+// was not applied, using the reason the builder recorded for it.
+func writeMissingIncludeWarnings(w io.Writer, result hardener.BuildResult) {
+	for _, mp := range result.MissingIncludes {
+		reason, ok := result.MissingIncludeReasons[mp]
+		if !ok {
+			reason = "not found in source image (directory may be created at runtime)"
+		}
+		fmt.Fprintf(w, "Warning:     --include %s: %s\n", mp, reason)
+	}
+}
 
 // runBuild implements the "harden build" subcommand.
 // It assembles a FROM-scratch OCI image from the sensor manifest, writes it
@@ -177,9 +190,7 @@ func runBuild(args []string) int {
 	for _, w := range result.ScratchWarnings {
 		fmt.Printf("Warning:     %s\n", w)
 	}
-	for _, mp := range result.MissingIncludes {
-		fmt.Printf("Warning:     --include %s: not found in source image, or lies beneath a file (directory may be created at runtime)\n", mp)
-	}
+	writeMissingIncludeWarnings(os.Stdout, result)
 	if confidence.Level == manifest.ConfidenceVeryLow {
 		fmt.Printf("Warning:     confidence score is Very Low — image may be missing runtime-critical files; run with --verbose for details\n")
 	}
