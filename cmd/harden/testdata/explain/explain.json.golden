@@ -1,0 +1,100 @@
+{
+  "deterministic": {
+    "inventory": true,
+    "source_paths": 24,
+    "hardened_paths": 5,
+    "kept_paths": 4,
+    "added_paths": 1,
+    "removed_paths": 20,
+    "removed_packages": 5,
+    "removed_paths_not_in_removed_packages": 8,
+    "top_removed_packages": [
+      {
+        "name": "busybox",
+        "version": "1.36.1-r29",
+        "purl": "pkg:apk/alpine/busybox@1.36.1-r29",
+        "paths": 4
+      },
+      {
+        "name": "apk-tools",
+        "version": "2.14.4-r1",
+        "purl": "pkg:apk/alpine/apk-tools@2.14.4-r1",
+        "paths": 3
+      },
+      {
+        "name": "musl-locales",
+        "version": "0.1.0-r1",
+        "purl": "pkg:apk/alpine/musl-locales@0.1.0-r1",
+        "paths": 2
+      },
+      {
+        "name": "pip",
+        "version": "24.0",
+        "purl": "pkg:pypi/pip@24.0",
+        "paths": 2
+      },
+      {
+        "name": "curl",
+        "version": "8.9.1-r0",
+        "purl": "pkg:apk/alpine/curl@8.9.1-r0",
+        "paths": 1
+      }
+    ],
+    "categories": [
+      {
+        "name": "shells",
+        "count": 1,
+        "examples": [
+          "/bin/sh"
+        ]
+      },
+      {
+        "name": "package managers",
+        "count": 5,
+        "examples": [
+          "/etc/apk/arch",
+          "/lib/apk/db/installed",
+          "/sbin/apk"
+        ]
+      },
+      {
+        "name": "network tools",
+        "count": 3,
+        "examples": [
+          "/usr/bin/curl",
+          "/usr/bin/nc",
+          "/usr/bin/wget"
+        ]
+      },
+      {
+        "name": "docs and man pages",
+        "count": 2,
+        "examples": [
+          "/usr/share/doc/nginx/README",
+          "/usr/share/man/man1/nginx.1.gz"
+        ]
+      },
+      {
+        "name": "test directories",
+        "count": 2,
+        "examples": [
+          "/usr/lib/python3.12/test/__init__.py",
+          "/usr/lib/python3.12/test/test_os.py"
+        ]
+      },
+      {
+        "name": "locale data",
+        "count": 2,
+        "examples": [
+          "/usr/share/i18n/locales/musl/de_DE.UTF-8",
+          "/usr/share/i18n/locales/musl/fr_FR.UTF-8"
+        ]
+      }
+    ],
+    "kept_by_source": {
+      "direct": 2,
+      "inferred-elf": 1,
+      "manual": 1
+    }
+  }
+}

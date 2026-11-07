@@ -215,7 +215,7 @@ Key things to check:
 - **Confidence** should be 70+ for a production build; see [docs/CONFIDENCE.md](docs/CONFIDENCE.md) for what lowers the score
 - **Files** count should be non-zero — a count of 0 direct observations means the sensor was not active or profiling did not capture any file-opens
 - `resolv.conf` absent is **expected** — the container runtime provides it; exit code 2 is returned only for other missing scratch-compat files
-- If `harden build` exits 0 but the hardened image fails to start, run with `--verbose` and use `--include` to add missing directories
+- If `harden build` exits 0 but the hardened image fails to start, run [`harden diagnose`](#when-a-hardened-image-fails-harden-diagnose-and-harden-explain) on its log, or run with `--verbose` and use `--include` to add missing directories
 
 ### Standalone (single Linux host, no Kubernetes)
 
@@ -337,6 +337,62 @@ A failure to collect the inventory only prints a warning; the build still succee
 failure to write the file exits non-zero. Library callers opt in with
 `hardener.BuildOptions{RecordInventory: true}` and read `BuildResult.Inventory`
 (`BuildResult.InventoryErr` carries a collection failure).
+
+## When a hardened image fails: `harden diagnose` and `harden explain`
+
+`harden diagnose` reads the log of a hardened container that fails and suggests
+the `harden build` flags that restore what it is missing. It only suggests paths
+that exist in the source image and were removed by the build (from the build's
+`inventory.json`), and it never rebuilds anything itself.
+
+```bash
+# --smoke-test saves the container log to <output>/smoke.log when it fails
+harden build --manifest files.json --source nginx:alpine --output /tmp/h --smoke-test
+# error: smoke test failed: container exited 1 ...
+# Hint: harden diagnose --output /tmp/h --log /tmp/h/smoke.log
+
+harden diagnose --output /tmp/h --log /tmp/h/smoke.log
+# Likely missing (from log):  /etc/nginx/mime.types  [deterministic]
+# Likely missing (from log):  /var/cache/nginx       [deterministic]
+# Re-run with:
+#   harden build ... --include /etc/nginx/mime.types --mkdir /var/cache/nginx
+
+# Any log works; use - for stdin
+kubectl logs deploy/myapp | harden diagnose --output /tmp/h --log -
+```
+
+Paths the log names directly (a quoted path, or a file name) are reported as
+`[deterministic]`. Weaker matches, such as a Python module `email.mime` that maps
+to a directory, are only ranked when a model is configured. If nothing matches,
+the failure is probably environmental (network, credentials, configuration).
+`--inventory` points at an inventory written with `--inventory-out`; `--json`
+prints machine-readable output. Exit code 0 means the command ran (with or
+without suggestions); 2 means a usage or input error.
+
+`harden explain --output <dir>` summarises what a build removed and kept: path
+counts, the removed packages with the most paths, and removed shells, package
+managers, network tools, docs, test directories and locale data. Add
+`--manifest files.json` to count kept paths by observation source.
+
+Both commands work without any model. Optionally, bring your own model: an
+OpenAI-compatible endpoint (Ollama, vLLM, LiteLLM, OpenRouter, ...) or the
+Anthropic API. Then `diagnose` also lets the model pick among the weaker matches
+(it can only select from that list; anything else is rejected), and `explain`
+adds a short plain-English summary checked against the facts it was given. Logs
+are redacted before they are sent. Nothing is sent unless a provider is
+configured, and `--no-ai` turns it off for one run:
+
+```bash
+export TRACEPOD_AI_PROVIDER=openai-compatible
+export TRACEPOD_AI_BASE_URL=http://localhost:11434/v1   # Ollama
+export TRACEPOD_AI_MODEL=qwen2.5:7b-instruct
+harden diagnose --output /tmp/h --log /tmp/h/smoke.log
+
+# or the Anthropic API
+TRACEPOD_AI_PROVIDER=anthropic ANTHROPIC_API_KEY=... harden explain --output /tmp/h
+```
+
+See [docs/ai.md](docs/ai.md) for every setting.
 
 ## Confidence scoring
 

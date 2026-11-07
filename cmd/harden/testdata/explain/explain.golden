@@ -1,0 +1,26 @@
+Build summary
+  Source image:      24 paths
+  Hardened image:    5 paths (4 kept from the source, 1 added)
+  Removed:           20 paths
+  Removed packages:  5
+  Removed paths not owned by a removed package: 8 (directories, files of partly kept packages, unpackaged files)
+
+Largest removed packages (by path count):
+  busybox 1.36.1-r29     4 paths
+  apk-tools 2.14.4-r1    3 paths
+  musl-locales 0.1.0-r1  2 paths
+  pip 24.0               2 paths
+  curl 8.9.1-r0          1 path
+
+Removed by category (files and links):
+  shells                   1  /bin/sh
+  package managers         5  /etc/apk/arch, /lib/apk/db/installed, /sbin/apk, ...
+  network tools            3  /usr/bin/curl, /usr/bin/nc, /usr/bin/wget
+  docs and man pages       2  /usr/share/doc/nginx/README, /usr/share/man/man1/nginx.1.gz
+  test directories         2  /usr/lib/python3.12/test/__init__.py, /usr/lib/python3.12/test/test_os.py
+  locale data              2  /usr/share/i18n/locales/musl/de_DE.UTF-8, /usr/share/i18n/locales/musl/fr_FR.UTF-8
+
+Kept paths by observation source (from --manifest):
+  direct                   2
+  inferred-elf             1
+  manual                   1

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -19,10 +20,22 @@ import (
 // It is a boot check, not a health check — it proves the minimized image can
 // start its entrypoint, which is where broken minimization dies.
 
+// smokeLogFilename is the container log saved in the output directory when the
+// smoke test fails; `harden diagnose --log` reads it.
+const smokeLogFilename = "smoke.log"
+
+// smokeLogMaxBytes caps the saved log; the tail is kept.
+const smokeLogMaxBytes = 200 * 1024
+
 // runSmokeTest loads ociDir into the local Docker daemon under tag and runs
 // it detached for graceWindow. Returns nil when the container is still
-// running (or exited 0) at the end of the window.
-func runSmokeTest(ctx context.Context, ociDir, tag string, graceWindow time.Duration) error {
+// running (or exited 0) at the end of the window. On failure the container log
+// is written to logPath (when non-empty) before returning.
+func runSmokeTest(ctx context.Context, ociDir, tag string, graceWindow time.Duration, logPath string) error {
+	// A log from an earlier failed run in the same directory is stale.
+	if logPath != "" {
+		_ = os.Remove(logPath)
+	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		return fmt.Errorf("docker not found in PATH (required for --smoke-test): %w", err)
 	}
@@ -55,6 +68,8 @@ func runSmokeTest(ctx context.Context, ociDir, tag string, graceWindow time.Dura
 	defer exec.Command("docker", "rm", "-f", ctr).Run() //nolint:errcheck
 
 	if out, err := exec.CommandContext(ctx, "docker", "run", "-d", "--name", ctr, tag).CombinedOutput(); err != nil {
+		// The runtime's error (for example a missing entrypoint) is the log.
+		saveSmokeLog(logPath, out)
 		return fmt.Errorf("docker run: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 
@@ -77,7 +92,30 @@ func runSmokeTest(ctx context.Context, ociDir, tag string, graceWindow time.Dura
 	if running || exitCode == "0" {
 		return nil
 	}
-	logs, _ := exec.CommandContext(ctx, "docker", "logs", "--tail", "40", ctr).CombinedOutput()
+	logs, _ := exec.CommandContext(ctx, "docker", "logs", ctr).CombinedOutput()
+	saveSmokeLog(logPath, logs)
 	return fmt.Errorf("container exited %s within %s — the minimized image cannot boot.\nLast logs:\n%s",
-		exitCode, graceWindow, strings.TrimSpace(string(logs)))
+		exitCode, graceWindow, lastLines(strings.TrimSpace(string(logs)), 40))
+}
+
+// saveSmokeLog writes the tail of logs to logPath; a failure only warns.
+func saveSmokeLog(logPath string, logs []byte) {
+	if logPath == "" {
+		return
+	}
+	if len(logs) > smokeLogMaxBytes {
+		logs = logs[len(logs)-smokeLogMaxBytes:]
+	}
+	if err := os.WriteFile(logPath, logs, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: save smoke-test log: %v\n", err)
+	}
+}
+
+// lastLines returns the last n lines of s.
+func lastLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
