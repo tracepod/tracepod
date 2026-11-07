@@ -41,7 +41,9 @@ func ApplyDirectoryInclusion(stagingDir string, includePaths []string, m *manife
 		absDir := filepath.Join(stagingDir, rel)
 
 		// Check existence before walking so we can collect missing paths.
-		if _, statErr := os.Lstat(absDir); os.IsNotExist(statErr) {
+		// A path beneath a regular file fails with ENOTDIR rather than ENOENT;
+		// it cannot exist either, and the user asked for it explicitly.
+		if _, statErr := os.Lstat(absDir); os.IsNotExist(statErr) || isNotDirErr(statErr) {
 			missing = append(missing, inclPath)
 			continue
 		}

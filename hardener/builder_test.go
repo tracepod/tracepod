@@ -1203,3 +1203,25 @@ func TestWriteTarEntries_RejectsStagingPaths(t *testing.T) {
 		}
 	}
 }
+
+// TestWriteTarEntriesCounting_SkippedBeneathNonDir verifies that paths skipped
+// because a parent is a regular file are counted.
+func TestWriteTarEntriesCounting_SkippedBeneathNonDir(t *testing.T) {
+	dir := t.TempDir()
+	createFile(t, dir, "/var/www/html/index.php")
+	m := &manifest.Manifest{
+		Files: map[string]manifest.FileEntry{
+			"/var/www/html/index.php":           {Source: manifest.SourceDirect},
+			"/var/www/html/index.php/.htaccess": {Source: manifest.SourceDirect},
+			"/var/www/html/index.php/x/y":       {Source: manifest.SourceDirect},
+		},
+	}
+	tw := tar.NewWriter(io.Discard)
+	skipped, err := writeTarEntriesCounting(tw, m, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skipped != 2 {
+		t.Errorf("skipped = %d, want 2", skipped)
+	}
+}

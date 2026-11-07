@@ -317,3 +317,23 @@ func TestApplyEnsurePaths_AuditTrail(t *testing.T) {
 		t.Errorf("unexpected IncludedBecause for file: %q", file.IncludedBecause)
 	}
 }
+
+// TestApplyDirectoryInclusion_BeneathRegularFile verifies that an --include
+// path whose parent component is a regular file (lstat gives ENOTDIR rather
+// than ENOENT) is reported as missing instead of being silently ignored.
+func TestApplyDirectoryInclusion_BeneathRegularFile(t *testing.T) {
+	stagingDir := t.TempDir()
+	writeFile(t, stagingDir, "foo.php", "<?php")
+	m := makeTestManifest()
+
+	added, missing, err := ApplyDirectoryInclusion(stagingDir, []string{"/foo.php/sub"}, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added != 0 {
+		t.Errorf("added = %d, want 0", added)
+	}
+	if len(missing) != 1 || missing[0] != "/foo.php/sub" {
+		t.Errorf("missing = %v, want [/foo.php/sub]", missing)
+	}
+}

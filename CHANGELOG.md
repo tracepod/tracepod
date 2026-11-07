@@ -6,6 +6,18 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `harden build` now reports an `--include` path that lies beneath a regular file
+  (for example `/srv/foo.php/sub`) in `MissingIncludes` and as a warning. It was
+  silently ignored because the lookup failed with ENOTDIR rather than ENOENT.
+
+### Changed
+
+- `harden build` prints the number of observed paths skipped because a parent is
+  not a directory (new `BuildResult.SkippedProbePaths`), instead of logging them
+  only at debug level.
+
 ## [0.2.8] - 2026-11-02
 
 ### Changed
