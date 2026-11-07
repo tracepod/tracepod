@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -102,6 +103,11 @@ type BuildResult struct {
 	// MissingIncludes lists --include paths not found in the source image staging
 	// directory. Non-fatal; the caller should emit a Warning: line for each.
 	MissingIncludes []string
+
+	// SkippedProbePaths is the number of manifest paths left out of the layer
+	// because a parent component is a regular file or non-directory symlink in
+	// the source image (for example an observed "foo.php/.htaccess" probe).
+	SkippedProbePaths int
 
 	// EnsuredCount is the number of ensure-dir + ensure-file entries added to the layer.
 	EnsuredCount int
@@ -284,8 +290,11 @@ func BuildImage(
 	}
 
 	// Build a deterministic, gzip-compressed tar layer from the final file set.
+	// The opener runs several times with identical output; each run stores the
+	// same skip count, so the value is stable once the layer has been digested.
+	var skippedProbes atomic.Int64
 	layer, err := tarball.LayerFromOpener(func() (io.ReadCloser, error) {
-		return buildLayer(m, stagingDir)
+		return buildLayerCounting(m, stagingDir, &skippedProbes)
 	})
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("create OCI layer: %w", err)
@@ -345,16 +354,17 @@ func BuildImage(
 	}
 
 	result := BuildResult{
-		Digest:          digest,
-		LayerDigest:     layerDigest,
-		LayerSize:       layerSize,
-		FileCount:       len(m.Files),
-		ScratchWarnings: scratchWarnings,
-		Unresolved:      unresolved,
-		MissingIncludes: missingIncludes,
-		EnsuredCount:    ensuredCount,
-		SourceDigest:    sourceDigest,
-		SourceSize:      sourceSize,
+		Digest:            digest,
+		LayerDigest:       layerDigest,
+		LayerSize:         layerSize,
+		FileCount:         len(m.Files),
+		ScratchWarnings:   scratchWarnings,
+		Unresolved:        unresolved,
+		MissingIncludes:   missingIncludes,
+		EnsuredCount:      ensuredCount,
+		SkippedProbePaths: int(skippedProbes.Load()),
+		SourceDigest:      sourceDigest,
+		SourceSize:        sourceSize,
 	}
 
 	// Produce the removed-set (OSS-3): scan the SAME extracted source tree the
@@ -570,11 +580,21 @@ func addScratchCompatEntry(m *manifest.Manifest, path string, t time.Time) {
 // tarball.LayerFromOpener calls this opener multiple times (once per digest
 // computation, once when writing), so the output must be identical on every call.
 func buildLayer(m *manifest.Manifest, stagingDir string) (io.ReadCloser, error) {
+	return buildLayerCounting(m, stagingDir, nil)
+}
+
+// buildLayerCounting is buildLayer that also records, when skipped is non-nil,
+// how many manifest paths were left out of the layer because they lie beneath
+// a non-directory.
+func buildLayerCounting(m *manifest.Manifest, stagingDir string, skipped *atomic.Int64) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 	go func() {
 		gw := gzip.NewWriter(pw)
 		tw := tar.NewWriter(gw)
-		err := writeTarEntries(tw, m, stagingDir)
+		n, err := writeTarEntriesCounting(tw, m, stagingDir)
+		if skipped != nil {
+			skipped.Store(int64(n))
+		}
 		tw.Close()
 		gw.Close()
 		pw.CloseWithError(err)
@@ -635,6 +655,13 @@ func expandSymlinkTargets(m *manifest.Manifest, stagingDir string) {
 // a non-directory in the source image or in this layer: such an entry is
 // skipped (an error for ensure entries). mtime is zeroed.
 func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) error {
+	_, err := writeTarEntriesCounting(tw, m, stagingDir)
+	return err
+}
+
+// writeTarEntriesCounting is writeTarEntries that also returns the number of
+// paths skipped because a parent component is not a directory.
+func writeTarEntriesCounting(tw *tar.Writer, m *manifest.Manifest, stagingDir string) (skipped int, err error) {
 	// Expand symlink targets before building the sorted path list so that
 	// symlinks pointing to targets absent from the manifest (e.g. python→python3,
 	// libz.so.1→libz.so.1.3.1) produce a non-dangling layer.
@@ -643,7 +670,7 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 	// Defensive: a manifest path that embeds the host staging directory would
 	// be written into the image as a bogus in-image path.
 	if err := checkNoStagingPaths(m, stagingDir); err != nil {
-		return err
+		return skipped, err
 	}
 
 	paths := make([]string, 0, len(m.Files))
@@ -674,14 +701,15 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 		}
 		if blocker != "" {
 			if isEnsureSource(entry.Source) {
-				return fmt.Errorf("%s %s: parent %s is not a directory", ensureFlag(entry.Source), path, blocker)
+				return skipped, fmt.Errorf("%s %s: parent %s is not a directory", ensureFlag(entry.Source), path, blocker)
 			}
 			slog.Debug("hardener: skipping path beneath a non-directory", "path", path, "parent", blocker)
+			skipped++
 			continue
 		}
 
 		if err := ensureParentDirs(tw, path, emittedDirs, zeroTime); err != nil {
-			return err
+			return skipped, err
 		}
 
 		src := inRootHostPath(stagingDir, path)
@@ -697,7 +725,7 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 						Mode:     0o755,
 						ModTime:  zeroTime,
 					}); err != nil {
-						return fmt.Errorf("tar ensure-dir %s: %w", path, err)
+						return skipped, fmt.Errorf("tar ensure-dir %s: %w", path, err)
 					}
 					emittedDirs[path] = struct{}{}
 				}
@@ -709,7 +737,7 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 					Mode:     0o644,
 					ModTime:  zeroTime,
 				}); err != nil {
-					return fmt.Errorf("tar ensure-file %s: %w", path, err)
+					return skipped, fmt.Errorf("tar ensure-file %s: %w", path, err)
 				}
 				emittedNonDirs[path] = struct{}{}
 			}
@@ -720,9 +748,10 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 			// (e.g. kernel recorded "foo.php/.htaccess" from an Apache htaccess
 			// probe that can never succeed). Treat it the same as ENOENT.
 			if isNotDirErr(err) {
+				skipped++
 				continue
 			}
-			return fmt.Errorf("stat %s: %w", src, err)
+			return skipped, fmt.Errorf("stat %s: %w", src, err)
 		}
 
 		// OCI tar convention: no leading slash on entry names.
@@ -732,7 +761,7 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 		case info.Mode()&os.ModeSymlink != 0:
 			target, err := os.Readlink(src)
 			if err != nil {
-				return fmt.Errorf("readlink %s: %w", src, err)
+				return skipped, fmt.Errorf("readlink %s: %w", src, err)
 			}
 			if err := tw.WriteHeader(&tar.Header{
 				Typeflag: tar.TypeSymlink,
@@ -740,7 +769,7 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 				Linkname: target,
 				ModTime:  zeroTime,
 			}); err != nil {
-				return fmt.Errorf("tar symlink header %s: %w", path, err)
+				return skipped, fmt.Errorf("tar symlink header %s: %w", path, err)
 			}
 			if isDir, _ := ancestorIsDir(stagingDir, path); !isDir {
 				emittedNonDirs[path] = struct{}{}
@@ -754,7 +783,7 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 					Mode:     int64(info.Mode().Perm()),
 					ModTime:  zeroTime,
 				}); err != nil {
-					return fmt.Errorf("tar dir header %s: %w", path, err)
+					return skipped, fmt.Errorf("tar dir header %s: %w", path, err)
 				}
 				emittedDirs[path] = struct{}{}
 			}
@@ -762,7 +791,7 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 		default:
 			f, err := os.Open(src)
 			if err != nil {
-				return fmt.Errorf("open %s: %w", src, err)
+				return skipped, fmt.Errorf("open %s: %w", src, err)
 			}
 			err = tw.WriteHeader(&tar.Header{
 				Typeflag: tar.TypeReg,
@@ -773,17 +802,17 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 			})
 			if err != nil {
 				f.Close()
-				return fmt.Errorf("tar file header %s: %w", path, err)
+				return skipped, fmt.Errorf("tar file header %s: %w", path, err)
 			}
 			if _, err := io.Copy(tw, f); err != nil {
 				f.Close()
-				return fmt.Errorf("tar file body %s: %w", path, err)
+				return skipped, fmt.Errorf("tar file body %s: %w", path, err)
 			}
 			f.Close()
 			emittedNonDirs[path] = struct{}{}
 		}
 	}
-	return nil
+	return skipped, nil
 }
 
 // checkNoStagingPaths returns an error if any manifest path contains one of the
