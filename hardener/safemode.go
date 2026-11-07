@@ -7,6 +7,7 @@
 package hardener
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -91,6 +92,37 @@ func ApplyDirectoryInclusion(stagingDir string, includePaths []string, m *manife
 	}
 
 	return added, missing, nil
+}
+
+// MissingIncludeReason explains why inclPath, an --include path that
+// ApplyDirectoryInclusion reported as missing, is absent from stagingDir.
+//
+// A path whose parent component is a regular file can never exist (the kernel
+// fails with ENOTDIR), so the reason names that file. Any other absent path is
+// reported as not found, which may be created at runtime.
+func MissingIncludeReason(stagingDir, inclPath string) string {
+	rel := strings.TrimPrefix(inclPath, "/")
+	comps := strings.Split(rel, "/")
+
+	cur := stagingDir
+	for i := 0; i < len(comps)-1; i++ {
+		if comps[i] == "" {
+			continue
+		}
+		cur = filepath.Join(cur, comps[i])
+		// Stat follows symlinks, matching how the kernel resolves intermediate
+		// components: a symlink to a directory is traversable.
+		fi, err := os.Stat(cur)
+		if err != nil {
+			// The ancestor is absent, so the path is absent too.
+			break
+		}
+		if !fi.IsDir() {
+			return fmt.Sprintf("lies beneath a file (/%s is not a directory); it cannot exist",
+				strings.Join(comps[:i+1], "/"))
+		}
+	}
+	return "not found in source image (directory may be created at runtime)"
 }
 
 // EnsureEntry declares a path that must exist in the hardened OCI image.

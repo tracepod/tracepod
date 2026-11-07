@@ -34,6 +34,10 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 - `harden build` now reports an `--include` path that lies beneath a regular file
   (for example `/srv/foo.php/sub`) in `MissingIncludes` and as a warning. It was
   silently ignored because the lookup failed with ENOTDIR rather than ENOENT.
+- `harden build` no longer says an `--include` path "may be created at runtime"
+  when it lies beneath a regular file. A missing path gets that hint; a path
+  beneath a file is reported as `lies beneath a file (<parent> is not a
+  directory); it cannot exist`.
 
 ### Changed
 
