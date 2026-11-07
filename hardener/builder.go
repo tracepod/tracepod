@@ -104,6 +104,10 @@ type BuildResult struct {
 	// directory. Non-fatal; the caller should emit a Warning: line for each.
 	MissingIncludes []string
 
+	// MissingIncludeReasons maps each path in MissingIncludes to a short
+	// explanation of why it is absent (see MissingIncludeReason).
+	MissingIncludeReasons map[string]string
+
 	// SkippedProbePaths is the number of manifest paths left out of the layer
 	// because a parent component is a regular file or non-directory symlink in
 	// the source image (for example an observed "foo.php/.htaccess" probe).
@@ -264,10 +268,15 @@ func BuildImage(
 	// files respect the same precedence order: direct > inferred-elf > manual >
 	// directory-inclusion.
 	var missingIncludes []string
+	var missingIncludeReasons map[string]string
 	if len(opts.IncludePaths) > 0 {
 		_, missingIncludes, err = ApplyDirectoryInclusion(stagingDir, opts.IncludePaths, m)
 		if err != nil {
 			return BuildResult{}, fmt.Errorf("apply directory inclusion: %w", err)
+		}
+		missingIncludeReasons = make(map[string]string, len(missingIncludes))
+		for _, p := range missingIncludes {
+			missingIncludeReasons[p] = MissingIncludeReason(stagingDir, p)
 		}
 	}
 
@@ -354,17 +363,18 @@ func BuildImage(
 	}
 
 	result := BuildResult{
-		Digest:            digest,
-		LayerDigest:       layerDigest,
-		LayerSize:         layerSize,
-		FileCount:         len(m.Files),
-		ScratchWarnings:   scratchWarnings,
-		Unresolved:        unresolved,
-		MissingIncludes:   missingIncludes,
-		EnsuredCount:      ensuredCount,
-		SkippedProbePaths: int(skippedProbes.Load()),
-		SourceDigest:      sourceDigest,
-		SourceSize:        sourceSize,
+		Digest:                digest,
+		LayerDigest:           layerDigest,
+		LayerSize:             layerSize,
+		FileCount:             len(m.Files),
+		ScratchWarnings:       scratchWarnings,
+		Unresolved:            unresolved,
+		MissingIncludes:       missingIncludes,
+		MissingIncludeReasons: missingIncludeReasons,
+		EnsuredCount:          ensuredCount,
+		SkippedProbePaths:     int(skippedProbes.Load()),
+		SourceDigest:          sourceDigest,
+		SourceSize:            sourceSize,
 	}
 
 	// Produce the removed-set (OSS-3): scan the SAME extracted source tree the
