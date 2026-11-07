@@ -1,0 +1,17 @@
+{
+ "schema_version": 5,
+ "files": {
+  "/usr/sbin/nginx": {
+   "source": "direct"
+  },
+  "/etc/nginx/nginx.conf": {
+   "source": "direct"
+  },
+  "/lib/ld-musl-aarch64.so.1": {
+   "source": "inferred-elf"
+  },
+  "/etc/passwd": {
+   "source": "manual"
+  }
+ }
+}

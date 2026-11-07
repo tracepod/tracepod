@@ -247,8 +247,16 @@ func runBuild(args []string) int {
 	if *smokeTest {
 		tag := "tracepod-smoke:latest"
 		fmt.Printf("Smoke test:  loading into local Docker and running for %s...\n", *smokeWindow)
-		if err := runSmokeTest(ctx, *outputDir, tag, *smokeWindow); err != nil {
+		logPath := filepath.Join(*outputDir, smokeLogFilename)
+		if err := runSmokeTest(ctx, *outputDir, tag, *smokeWindow, logPath); err != nil {
 			fmt.Fprintf(os.Stderr, "error: smoke test failed: %v\n", err)
+			if _, serr := os.Stat(logPath); serr == nil {
+				hint := fmt.Sprintf("harden diagnose --output %s --log %s", *outputDir, logPath)
+				if *inventoryOut != "" {
+					hint += " --inventory " + *inventoryOut
+				}
+				fmt.Fprintf(os.Stderr, "Hint: %s\n", hint)
+			}
 			return 1
 		}
 		fmt.Printf("Smoke test:  PASS — the minimized image boots\n")

@@ -1,0 +1,67 @@
+{
+ "version": 2,
+ "source_digest": "sha256:aa",
+ "hardened_digest": "sha256:bb",
+ "files": [
+  {
+   "path": "/etc/nginx/mime.types",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/etc/nginx/nginx.conf",
+   "type": "file",
+   "in_hardened": true,
+   "in_source": true
+  },
+  {
+   "path": "/usr/sbin/nginx",
+   "type": "file",
+   "in_hardened": true,
+   "in_source": true
+  },
+  {
+   "path": "/usr/local/lib/python3.12/site-packages/yaml",
+   "type": "dir",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/local/lib/python3.12/site-packages/yaml/__init__.py",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/local/lib/python3.12/site-packages/yaml/loader.py",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/local/lib/python3.12/json/__init__.py",
+   "type": "file",
+   "in_hardened": true,
+   "in_source": true
+  },
+  {
+   "path": "/usr/share/zoneinfo/UTC",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/local/bin/app.py",
+   "type": "file",
+   "in_hardened": true,
+   "in_source": true
+  },
+  {
+   "path": "/var/cache/nginx",
+   "type": "dir",
+   "in_hardened": false,
+   "in_source": true
+  }
+ ]
+}

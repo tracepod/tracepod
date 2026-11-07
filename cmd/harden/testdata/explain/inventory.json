@@ -1,0 +1,161 @@
+{
+ "version": 2,
+ "source_digest": "sha256:aa",
+ "hardened_digest": "sha256:bb",
+ "files": [
+  {
+   "path": "/bin/busybox",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/bin/sh",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/etc/apk/arch",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/etc/nginx/mime.types",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/etc/nginx/nginx.conf",
+   "type": "file",
+   "in_hardened": true,
+   "in_source": true,
+   "hardened_type": "file"
+  },
+  {
+   "path": "/etc/passwd",
+   "type": "file",
+   "in_hardened": true,
+   "in_source": true,
+   "hardened_type": "file"
+  },
+  {
+   "path": "/lib",
+   "in_hardened": true,
+   "in_source": false,
+   "hardened_type": "dir"
+  },
+  {
+   "path": "/lib/apk/db/installed",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/lib/ld-musl-aarch64.so.1",
+   "type": "file",
+   "in_hardened": true,
+   "in_source": true,
+   "hardened_type": "file"
+  },
+  {
+   "path": "/sbin/apk",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/bin/curl",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/bin/nc",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/bin/wget",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/lib/python3.12/site-packages/pip/__init__.py",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/lib/python3.12/site-packages/pip/_internal/main.py",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/lib/python3.12/test",
+   "type": "dir",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/lib/python3.12/test/__init__.py",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/lib/python3.12/test/test_os.py",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/sbin/nginx",
+   "type": "file",
+   "in_hardened": true,
+   "in_source": true,
+   "hardened_type": "file"
+  },
+  {
+   "path": "/usr/share/doc/nginx/README",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/share/i18n/locales/musl/de_DE.UTF-8",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/share/i18n/locales/musl/fr_FR.UTF-8",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/share/man",
+   "type": "dir",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/share/man/man1/nginx.1.gz",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  },
+  {
+   "path": "/usr/share/zoneinfo/UTC",
+   "type": "file",
+   "in_hardened": false,
+   "in_source": true
+  }
+ ]
+}

@@ -6,6 +6,29 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `harden diagnose --output <dir> --log <file|->` suggests `--include` (or
+  `--mkdir`, for empty directories) flags for a hardened image that fails at
+  runtime. It reads the build's `inventory.json` and the container log and only
+  suggests paths that exist in the source image and were removed. Paths the log
+  names directly are reported deterministically; with a model configured, the
+  model can rank the weaker matches, choosing only from that list. Nothing is
+  rebuilt automatically.
+- `harden explain --output <dir>` summarises what a build removed and kept: path
+  counts, the removed packages with the most paths, and removed shells, package
+  managers, network tools, docs, test directories and locale data
+  (`--manifest` adds kept-path counts by observation source). With a model
+  configured it adds a short plain-English summary, checked against the facts it
+  was given.
+- Both commands work without a model and make no network calls unless
+  `TRACEPOD_AI_PROVIDER` is set (`openai-compatible` or `anthropic`; see
+  `docs/ai.md`). Credentials come from the environment only and are never
+  stored; logs are redacted before they are sent; `--no-ai` turns the model off
+  for one run; `--json` prints machine-readable output.
+- `harden build --smoke-test` saves the failing container's log to
+  `<output>/smoke.log` and prints the matching `harden diagnose` command.
+
 ### Fixed
 
 - `harden build` now reports an `--include` path that lies beneath a regular file
