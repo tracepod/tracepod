@@ -6,6 +6,17 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-11-08
+
+### Fixed
+
+- The v0.2.9 release published its binaries but not the arm64 sensor image
+  (the build's bpftool download kept failing), so there is no multi-arch
+  `tracepod-sensor:v0.2.9` image. v0.2.10 contains the same code as v0.2.9 and
+  publishes the image. Use v0.2.10 instead of v0.2.9.
+- arm64 sensor image builds no longer download bpftool (unused: arm64 BPF
+  objects are committed), and release downloads retry on transient errors.
+
 ## [0.2.9] - 2026-11-08
 
 ### Deprecated
@@ -466,7 +477,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 - `schema_version` changed type from string (`"1"`) to integer (`2`). Consumers
   must treat a string `schema_version` (or its absence) as a legacy v1 profile.
 
-[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.9...HEAD
+[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.10...HEAD
+[0.2.10]: https://github.com/tracepod/tracepod/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/tracepod/tracepod/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/tracepod/tracepod/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/tracepod/tracepod/compare/v0.2.6...v0.2.7
