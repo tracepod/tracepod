@@ -107,10 +107,14 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	verbose := flag.Bool("verbose", false, "print every file-open event to stderr (noisy; for debugging)")
 	ringbufBytes := flag.Uint("ringbuf-bytes", 0, "override events ring-buffer size in bytes (0=default 256KB; power of two, page-multiple). Test-only: a tiny value forces event loss for the induced-loss schema-v3 fixture")
-	postUnownedNS := flag.String("post-unowned-pods-namespace", "", "POST profiles for pods with no tracked workload owner in this ONE namespace, keyed by pod name (used for the controller's sandbox validation namespace)")
+	postUnownedNS := flag.String("post-unowned-pods-namespace", "", "DEPRECATED: ignored; owner-less pods are never profiled")
 	traceStat := flag.Bool("trace-stat", false, "additionally trace stat-family existence checks (vfs_fstatat kprobe; access mode \"s\", schema v4). Higher event volume — watch event_loss counters")
 	snapshotInterval := flag.Duration("snapshot-interval", 0, "while a container runs, POST a cumulative non-terminal profile snapshot at this interval (requires --controller-url; 0 disables; minimum 10s)")
 	flag.Parse()
+
+	if *postUnownedNS != "" {
+		fmt.Fprintln(os.Stderr, "sensor: --post-unowned-pods-namespace is deprecated and ignored; owner-less pods are never profiled")
+	}
 
 	if err := validateSnapshotInterval(*snapshotInterval); err != nil {
 		log.Fatalf("%v", err)
@@ -141,7 +145,6 @@ func main() {
 
 	// router dispatches ring buffer events to the right per-container aggregator.
 	router := newRouter(p, *profileDir, *controllerURL, *nodeName, resolver, *verbose)
-	router.postUnownedNS = *postUnownedNS
 	stopSnapshots := func() {}
 	switch {
 	case *snapshotInterval > 0 && *controllerURL == "":
@@ -226,7 +229,6 @@ type cgroupRouter struct {
 	profileDir    string
 	controllerURL string
 	nodeName      string
-	postUnownedNS string
 	resolver      sensor.WorkloadResolver // nil in standalone mode
 	verbose       bool
 
@@ -600,18 +602,10 @@ func (r *cgroupRouter) flush(agg *manifest.Aggregator, target *postTarget, termi
 		dep, imageRef = d, ir
 	}
 	if dep == "" {
-		// Bare pods (no Deployment/StatefulSet owner) are normally skipped —
-		// cron pods and one-offs would pollute the workload list. The single
-		// deliberate exception is the controller's sandbox namespace: the
-		// validation flow depends on receiving the sandbox pod's profile (by
-		// container ID) to compute the missing-file diff, so pods there POST
-		// under their own pod name.
-		if r.postUnownedNS != "" && target.pod.Namespace == r.postUnownedNS {
-			dep = target.pod.Name
-		} else {
-			fmt.Fprintf(os.Stderr, "sensor: pod %s/%s has no tracked workload owner (Deployment/StatefulSet) — skipping POST\n", target.pod.Namespace, target.pod.Name)
-			return
-		}
+		// Bare pods (no Deployment/StatefulSet owner) are never profiled:
+		// cron pods and one-offs would pollute the workload list.
+		fmt.Fprintf(os.Stderr, "sensor: pod %s/%s has no tracked workload owner (Deployment/StatefulSet) — skipping POST\n", target.pod.Namespace, target.pod.Name)
+		return
 	}
 	// Ensure the image ref is on the snapshot.
 	if imageRef != "" {
