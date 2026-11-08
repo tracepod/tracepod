@@ -36,7 +36,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             clang-18 llvm-18 libbpf-dev
           ARCH=$(dpkg --print-architecture)
-          curl -fsSL \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 \
             "https://github.com/libbpf/bpftool/releases/download/v7.7.0/bpftool-v7.7.0-${ARCH}.tar.gz" \
             | sudo tar -xz -C /usr/local/bin
           sudo chmod +x /usr/local/bin/bpftool

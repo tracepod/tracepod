@@ -22,14 +22,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates make \
     && rm -rf /var/lib/apt/lists/*
 
+# bpftool is only needed to generate BPF objects (amd64); arm64 objects are
+# committed, so arm64 builds skip the download.
 ARG BPFTOOL_VERSION=v7.7.0
-RUN ARCH=$(dpkg --print-architecture) && \
-    curl -fsSL \
-      "https://github.com/libbpf/bpftool/releases/download/${BPFTOOL_VERSION}/bpftool-${BPFTOOL_VERSION}-${ARCH}.tar.gz" \
-    | tar -xz -C /usr/local/bin && \
-    chmod +x /usr/local/bin/bpftool
+RUN if [ "$TARGETARCH" != "arm64" ]; then \
+      ARCH=$(dpkg --print-architecture) && \
+      curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 \
+        "https://github.com/libbpf/bpftool/releases/download/${BPFTOOL_VERSION}/bpftool-${BPFTOOL_VERSION}-${ARCH}.tar.gz" \
+      | tar -xz -C /usr/local/bin && \
+      chmod +x /usr/local/bin/bpftool; \
+    fi
 
-RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
+RUN curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
     | tar -C /usr/local -xz
 ENV PATH="/usr/local/go/bin:$PATH" \
     GOPATH="/go" \
