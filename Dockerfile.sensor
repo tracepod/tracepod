@@ -24,12 +24,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ARG BPFTOOL_VERSION=v7.7.0
 RUN ARCH=$(dpkg --print-architecture) && \
-    curl -fsSL \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 \
       "https://github.com/libbpf/bpftool/releases/download/${BPFTOOL_VERSION}/bpftool-${BPFTOOL_VERSION}-${ARCH}.tar.gz" \
     | tar -xz -C /usr/local/bin && \
     chmod +x /usr/local/bin/bpftool
 
-RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
+RUN curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
     | tar -C /usr/local -xz
 ENV PATH="/usr/local/go/bin:$PATH" \
     GOPATH="/go" \
