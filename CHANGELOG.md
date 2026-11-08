@@ -6,6 +6,14 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Deprecated
+
+- `--post-unowned-pods-namespace` (Helm `sensor.postUnownedPodsNamespace`). The
+  flag is still accepted so existing DaemonSets keep starting, but it is ignored
+  and logs a warning at startup; pods without a Deployment/StatefulSet owner are
+  never profiled. The Helm value has been removed from the chart. The flag will
+  be removed in a future minor release.
+
 ### Added
 
 - `harden diagnose --output <dir> --log <file|->` suggests `--include` (or

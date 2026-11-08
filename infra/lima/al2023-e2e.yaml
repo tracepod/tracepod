@@ -2,7 +2,7 @@
 #
 # Purpose: hack/e2e/run-e2e.sh has only ever run on Ubuntu (GitHub
 # ubuntu-latest, and the k8s-dev Lima VM). This VM runs the SAME full e2e
-# pipeline (kind cluster, sensor DaemonSet, harden build, sandbox validation)
+# pipeline (kind cluster, sensor DaemonSet, harden build, smoke test)
 # on top of Amazon Linux 2023's own kernel build — kind shares the host
 # kernel, so this exercises the whole product against AL2023's kernel the way
 # infra/lima/al2023-kernel.yaml exercises just BPF load/attach. AL2023 is

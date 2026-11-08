@@ -27,7 +27,7 @@ packages, fewer CVEs.
    a container opens, filtered by cgroup namespace to the target container only
 2. **Harden** — the hardener reads the manifest and builds a new OCI image containing
    only the observed files, resolved ELF dependencies, and any explicitly included paths
-3. **Validate** — run the hardened image in a sandbox to confirm it behaves correctly
+3. **Validate** — boot the hardened image (`harden build --smoke-test`) or run your own smoke test before shipping
 4. **Publish** — push the hardened image to your registry
 
 ## Components
@@ -426,8 +426,7 @@ Semantics:
   sensor serialises a container's POSTs, so a stop waits for any in-flight interim POST and
   no interim POST starts after it. The shutdown flush on SIGTERM is also non-terminal.
 - Only containers whose owning workload (Deployment/StatefulSet) was resolved at container
-  start are posted. The interim path never does a live Kubernetes lookup and never uses the
-  unowned-pod fallback; those containers are reported at stop as usual.
+  start are posted. The interim path never does a live Kubernetes lookup and never posts for pods without a workload owner; those containers are reported at stop as usual.
 - Each container's first snapshot is offset by a deterministic jitter in `[0, interval)`
   derived from its container ID, so a node's containers do not all POST at once.
 - A failed POST never blocks event processing. It is logged (at most once per container per
@@ -552,10 +551,10 @@ recording gap it originally uncovered was fixed in v0.2.2).
 
 `hack/kernel-compat.sh` only exercises BPF load/attach — it never runs a
 containerd/kubelet/kind stack, so it can't catch a bug in NRI adoption, the
-harden build, or sandbox validation. `infra/lima/al2023-e2e.yaml` provisions
+harden build, or smoke test. `infra/lima/al2023-e2e.yaml` provisions
 a second AL2023 VM sized and provisioned like the Ubuntu `k8s-dev` VM (Docker,
 kind, kubectl, helm, Go, syft) so the FULL `hack/e2e/run-e2e.sh` pipeline
-(sensor DaemonSet, harden build, sandbox validation) can run against AL2023's
+(sensor DaemonSet, harden build, smoke test) can run against AL2023's
 own kernel build, on each of EKS's three shipping kernels:
 
 ```bash
