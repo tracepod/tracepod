@@ -31,7 +31,7 @@ This directory holds the formal JSON Schema for each published version:
 > window yields *fewer* file entries, so it is well-formed and reads as cleaner
 > than a complete profile rather than obviously broken — and any consumer that
 > treats "files this container did not open" as evidence (image minimisation,
-> sandbox validation) will silently under-report.
+> downstream validation) will silently under-report.
 >
 > Nor can it be derived from timestamps: comparing the sensor's `attach_time`
 > against the pod's container `StartedAt` fails because Kubernetes serialises

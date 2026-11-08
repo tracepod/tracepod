@@ -692,8 +692,8 @@ Python case.** The general stat-blindness remains for other existence-probe patt
   (`<mod>.pyc.<digits>`) to their final path.
 - Curated per-runtime baseline presets (dashboard: `runtime-python3.11/12/13`) cover
   known-but-not-derivable gaps such as `encodings/` and `lib-dynload/`.
-- Sandbox validation remains the safety net: a hardened image that cannot boot fails
-  validation before any push.
+- A smoke test (`--smoke-test`) remains the safety net: a hardened image that cannot
+  boot fails the build.
 
 ### Long-term fix direction
 

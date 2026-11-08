@@ -13,10 +13,9 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/layout"
 )
 
-// Local smoke test: the laptop-scale version of the controller's sandbox
-// validation. The freshly built OCI layout is loaded into the local Docker
-// daemon and run for a grace window; an image that exits non-zero inside it
-// fails the build the same way a crashing sandbox pod would in-cluster.
+// Local smoke test: a laptop-scale boot check. The freshly built OCI layout is
+// loaded into the local Docker daemon and run for a grace window; an image that
+// exits non-zero inside it fails the build.
 // It is a boot check, not a health check — it proves the minimized image can
 // start its entrypoint, which is where broken minimization dies.
 

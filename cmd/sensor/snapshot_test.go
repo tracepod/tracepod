@@ -292,11 +292,10 @@ func TestRunSnapshots_SkipsUnresolvedTargets(t *testing.T) {
 	clk.Advance(time.Hour)
 	r.snapshotPass(context.Background())
 
-	// 2. Bare pod (resolved, no owner) must not use the unowned-namespace fallback.
+	// 2. Bare pod (resolved, no owner) is never posted.
 	res2 := &fakeResolver{dep: ""}
 	r2 := newRouter(nil, "", srv.URL, "n", res2, false)
 	r2.snapshotInterval, r2.now = 20*time.Second, clk.Now
-	r2.postUnownedNS = "ns"
 	r2.onContainerStart(container.StartInfo{ContainerID: snapCtr, CgroupID: 2, Pod: container.PodMeta{Namespace: "ns", Name: "bare"}})
 	waitStartResolve(t, r2, 2)
 	clk.Advance(time.Hour)

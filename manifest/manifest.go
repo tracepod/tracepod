@@ -243,7 +243,7 @@ type Manifest struct {
 	// mid-life snapshot is indistinguishable on the wire from a complete one,
 	// because a truncated window produces a well-formed manifest with FEWER file
 	// entries. Any consumer treating "files this container did not open" as
-	// evidence — image minimisation, sandbox validation — MUST require true.
+	// evidence — image minimisation, downstream validation — MUST require true.
 	ProfileTerminal bool `json:"profile_terminal"`
 
 	// ContainerStarts lists the container starts the sensor witnessed during the
