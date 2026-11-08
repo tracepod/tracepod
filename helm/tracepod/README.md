@@ -95,7 +95,7 @@ kubectl -n tracepod logs daemonset/tracepod-sensor | grep -E "NRI|tracking"
 | Value | Default | Description |
 |-------|---------|-------------|
 | `sensor.image.repository` | `ghcr.io/tracepod/tracepod-sensor` | Sensor container image |
-| `sensor.image.tag` | `""` | Image tag; empty defaults to `v<appVersion>` (currently `v0.2.8`) — override to pin a specific release tag |
+| `sensor.image.tag` | `""` | Image tag; empty defaults to `v<appVersion>` (currently `v0.2.9`) — override to pin a specific release tag |
 | `sensor.image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `sensor.controllerURL` | `""` | Tracepod controller URL; empty = standalone mode |
 | `sensor.snapshotInterval` | `""` | Go duration (>= `10s`, e.g. `5m`); when set, the sensor POSTs cumulative interim snapshots of running containers to `controllerURL` at this interval. Empty = off. See the main README, "Interim profile snapshots" |
