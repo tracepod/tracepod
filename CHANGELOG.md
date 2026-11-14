@@ -6,6 +6,11 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The NRI plugin now registers as `tracepod-sensor`; update any containerd log
+  filters that matched the old name.
+
 ## [0.2.10] - 2026-11-08
 
 ### Fixed

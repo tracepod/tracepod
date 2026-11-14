@@ -20,7 +20,7 @@ func TestCgroupIDFromPath_existingAbsoluteDir(t *testing.T) {
 }
 
 func TestCgroupIDFromPath_missingPathReturnsError(t *testing.T) {
-	_, err := container.CgroupIDFromPath("/tmp/no-such-dir-for-neeva-test")
+	_, err := container.CgroupIDFromPath("/tmp/no-such-dir-for-tracepod-test")
 	if err == nil {
 		t.Fatal("expected error for missing path, got nil")
 	}

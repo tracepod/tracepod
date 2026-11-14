@@ -118,7 +118,7 @@ func NewPlugin(allower CgroupAllower, onStart func(StartInfo), onStop func(conta
 // lifecycle events. It returns an error if the socket is unreachable.
 func (p *Plugin) Start() error {
 	s, err := stub.New(p,
-		stub.WithPluginName("neeva-sensor"),
+		stub.WithPluginName("tracepod-sensor"),
 		stub.WithPluginIdx("00"),
 	)
 	if err != nil {
