@@ -6,6 +6,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-11-14
+
 ### Changed
 
 - The NRI plugin now registers as `tracepod-sensor`; update any containerd log
@@ -482,7 +484,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 - `schema_version` changed type from string (`"1"`) to integer (`2`). Consumers
   must treat a string `schema_version` (or its absence) as a legacy v1 profile.
 
-[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.10...HEAD
+[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.11...HEAD
+[0.2.11]: https://github.com/tracepod/tracepod/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/tracepod/tracepod/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/tracepod/tracepod/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/tracepod/tracepod/compare/v0.2.7...v0.2.8
