@@ -6,6 +6,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-11-15
+
 ### Added
 
 - `--controller-token-file <path>`: the sensor can authenticate to the configured
@@ -496,7 +498,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 - `schema_version` changed type from string (`"1"`) to integer (`2`). Consumers
   must treat a string `schema_version` (or its absence) as a legacy v1 profile.
 
-[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.11...HEAD
+[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.12...HEAD
+[0.2.12]: https://github.com/tracepod/tracepod/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/tracepod/tracepod/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/tracepod/tracepod/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/tracepod/tracepod/compare/v0.2.8...v0.2.9
