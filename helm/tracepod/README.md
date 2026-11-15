@@ -98,6 +98,9 @@ kubectl -n tracepod logs daemonset/tracepod-sensor | grep -E "NRI|tracking"
 | `sensor.image.tag` | `""` | Image tag; empty defaults to `v<appVersion>` (currently `v0.2.11`) — override to pin a specific release tag |
 | `sensor.image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `sensor.controllerURL` | `""` | Tracepod controller URL; empty = standalone mode |
+| `sensor.controllerToken.enabled` | `true` | With `controllerURL` set, mount a projected ServiceAccount token for the sensor's ServiceAccount and pass `--controller-token-file`; every POST then carries `Authorization: Bearer <token>`. `false` sends no `Authorization` header |
+| `sensor.controllerToken.audience` | `tracepod-ingest` | Audience the projected token is bound to; the receiving controller validates the token (e.g. with a TokenReview) for this audience |
+| `sensor.controllerToken.expirationSeconds` | `3600` | Projected token lifetime (Kubernetes minimum 600); the kubelet rotates the token and the sensor re-reads it on every POST |
 | `sensor.snapshotInterval` | `""` | Go duration (>= `10s`, e.g. `5m`); when set, the sensor POSTs cumulative interim snapshots of running containers to `controllerURL` at this interval. Empty = off. See the main README, "Interim profile snapshots" |
 | `sensor.profileHostPath` | `/var/lib/tracepod/profiles` | Node-local path for profile output (standalone only) |
 | `sensor.resources` | `{}` | Container resource requests/limits |
