@@ -49,6 +49,20 @@
 //	                         With --controller-url and no pod metadata, the
 //	                         profile is not POSTed — this flag is a standalone/
 //	                         debug mode, not a K8s adoption path.
+//	--namespaces-include <list>
+//	                         comma-separated Kubernetes namespaces to profile
+//	                         (exact names or globs such as "team-*"). Default
+//	                         empty: every namespace. When set, a container whose
+//	                         namespace is unknown is not profiled.
+//	--namespaces-exclude <list>
+//	                         comma-separated namespaces never to profile (exact
+//	                         names or globs). Exclude wins over include. An
+//	                         out-of-scope container is never added to the
+//	                         in-kernel allowlist, so its events are never
+//	                         collected, and no profile is written or POSTed for
+//	                         it. Both flags apply to containers discovered
+//	                         through NRI; the --cgroup-path cgroup has no
+//	                         namespace and is always traced.
 //	--snapshot-interval <d>  while a container runs, POST a cumulative interim
 //	                         profile snapshot (profile_terminal=false) to
 //	                         --controller-url every <d>, in addition to the
@@ -118,6 +132,8 @@ func main() {
 	postUnownedNS := flag.String("post-unowned-pods-namespace", "", "DEPRECATED: ignored; owner-less pods are never profiled")
 	traceStat := flag.Bool("trace-stat", false, "additionally trace stat-family existence checks (vfs_fstatat kprobe; access mode \"s\", schema v4). Higher event volume — watch event_loss counters")
 	snapshotInterval := flag.Duration("snapshot-interval", 0, "while a container runs, POST a cumulative non-terminal profile snapshot at this interval (requires --controller-url; 0 disables; minimum 10s)")
+	nsInclude := flag.String("namespaces-include", "", "comma-separated namespaces to profile (exact names or globs, e.g. \"shop,team-*\"); empty = all namespaces")
+	nsExclude := flag.String("namespaces-exclude", "", "comma-separated namespaces never to profile (exact names or globs); wins over --namespaces-include")
 	flag.Parse()
 
 	if *postUnownedNS != "" {
@@ -125,6 +141,10 @@ func main() {
 	}
 
 	if err := validateSnapshotInterval(*snapshotInterval); err != nil {
+		log.Fatalf("%v", err)
+	}
+	scope, err := sensor.NewNamespaceScope(*nsInclude, *nsExclude)
+	if err != nil {
 		log.Fatalf("%v", err)
 	}
 
@@ -153,6 +173,8 @@ func main() {
 
 	// router dispatches ring buffer events to the right per-container aggregator.
 	router := newRouter(p, *profileDir, *controllerURL, *nodeName, resolver, *verbose)
+	router.scope = scope
+	fmt.Fprintf(os.Stderr, "sensor: namespace scope: %s\n", scope)
 	switch {
 	case *controllerTokenFile != "" && *controllerURL == "":
 		fmt.Fprintln(os.Stderr, "sensor: --controller-token-file ignored: it requires --controller-url")
@@ -200,6 +222,7 @@ func main() {
 	// surfaces the failure as CrashLoopBackOff). --cgroup-path mode never
 	// depends on NRI, so it keeps the warn-and-continue behavior.
 	plugin := container.NewPlugin(p, router.onContainerStart, router.onContainerStop)
+	plugin.SetNamespaceFilter(scope.Allows)
 	if err := plugin.Start(); err != nil {
 		if nriFailureIsFatal(*cgroupPath) {
 			fmt.Fprintf(os.Stderr, "fatal: NRI unavailable (%v) — refusing to run: no containers would be traced. Enable NRI in containerd (docs/KNOWN-LIMITATIONS.md §0.6) or run hack/discovery-probe.sh on this node.\n", err)
@@ -254,6 +277,13 @@ type cgroupRouter struct {
 	controllerTokenFile string
 	resolver            sensor.WorkloadResolver // nil in standalone mode
 	verbose             bool
+
+	// scope limits profiling to chosen namespaces (--namespaces-include/
+	// --namespaces-exclude). The NRI plugin applies it before adoption; the
+	// router checks it again at start and at flush, with whatever namespace is
+	// known then, so an out-of-scope container is never written or POSTed.
+	// nil allows every namespace.
+	scope *sensor.NamespaceScope
 
 	// snapshotInterval enables interim snapshots when > 0 (see snapshot.go).
 	// now is the clock used for snapshot scheduling; nil means time.Now.
@@ -456,6 +486,11 @@ func registerManualCgroup(r *cgroupRouter, allower container.CgroupAllower, path
 // container START, so it resolves before GC just as OSS-5 requires, while letting
 // Synchronize return in milliseconds.
 func (r *cgroupRouter) onContainerStart(info container.StartInfo) {
+	// The NRI plugin already filters by namespace; this guards other callers.
+	// A cgroup without a namespace (--cgroup-path) is always traced.
+	if info.Pod.Namespace != "" && !r.scope.Allows(info.Pod.Namespace) {
+		return
+	}
 	agg := manifest.NewAggregator(info.ContainerID, "")
 	agg.RecordAttach(info.AttachTime, info.ProcessAlreadyRunning)
 	agg.RecordAdoptionMode(info.AdoptionMode)
@@ -556,6 +591,14 @@ func (r *cgroupRouter) flush(agg *manifest.Aggregator, target *postTarget, termi
 	target.postMu.Lock()
 	defer target.postMu.Unlock()
 	target.closed = true
+
+	// Namespace scope, with the namespace known now (NRI may supply it only at
+	// stop): an out-of-scope container is neither written nor POSTed.
+	if ns := target.pod.Namespace; ns != "" && !r.scope.Allows(ns) {
+		fmt.Fprintf(os.Stderr, "sensor: container %s in namespace %q is out of scope — profile dropped\n",
+			target.containerID, ns)
+		return
+	}
 
 	snap := agg.Snapshot()
 	if terminal {

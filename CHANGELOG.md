@@ -6,6 +6,18 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `--namespaces-include` and `--namespaces-exclude` (comma-separated exact names or
+  globs such as `team-*`) limit the sensor to chosen Kubernetes namespaces. An empty
+  include list means every namespace; exclude wins over include. Out-of-scope containers
+  are never added to the in-kernel allowlist, and no profile is written or POSTed for
+  them. A container with no known namespace is profiled only when the include list is
+  empty; the `--cgroup-path` cgroup is always traced. The effective scope is logged at
+  startup. Default: both empty, so every namespace is profiled as before.
+- Helm `sensor.namespaces.include` / `sensor.namespaces.exclude` (lists, default empty),
+  rendered into the flags only when non-empty.
+
 ## [0.2.12] - 2026-11-15
 
 ### Added

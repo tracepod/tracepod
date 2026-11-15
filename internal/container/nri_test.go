@@ -174,3 +174,53 @@ func TestPlugin_StopContainer_nilPodGivesEmptyMeta(t *testing.T) {
 		t.Errorf("expected empty PodMeta for nil pod, got %+v", gotMeta)
 	}
 }
+
+// TestPlugin_NamespaceFilter checks that a container rejected by the namespace
+// filter is never allowlisted, never reaches onStart/onStop, and leaves no
+// cached state behind (a later in-scope container with the same ID adopts
+// normally), for both StartContainer and Synchronize adoption.
+func TestPlugin_NamespaceFilter(t *testing.T) {
+	m := &mockAllower{}
+	var started, stopped int
+	p := container.NewPlugin(m,
+		func(container.StartInfo) { started++ },
+		func(string, uint64, container.PodMeta) { stopped++ })
+	p.SetNamespaceFilter(func(ns string) bool { return ns != "kube-system" })
+
+	ctx := context.Background()
+	sys := &api.PodSandbox{Id: "sb1", Namespace: "kube-system", Name: "coredns"}
+	ctr := &api.Container{Id: "c1", PodSandboxId: "sb1", Linux: &api.LinuxContainer{CgroupsPath: "/"}}
+	if _, _, err := p.CreateContainer(ctx, sys, ctr); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.StartContainer(ctx, sys, ctr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.StopContainer(ctx, sys, ctr); err != nil {
+		t.Fatal(err)
+	}
+
+	running := &api.Container{Id: "c2", PodSandboxId: "sb1", State: api.ContainerState_CONTAINER_RUNNING,
+		Linux: &api.LinuxContainer{CgroupsPath: "/"}}
+	if _, err := p.Synchronize(ctx, []*api.PodSandbox{sys}, []*api.Container{running}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(m.allowed) != 0 || started != 0 || stopped != 0 {
+		t.Fatalf("excluded containers: allowed=%d started=%d stopped=%d, want 0/0/0", len(m.allowed), started, stopped)
+	}
+
+	// StartContainer reads the namespace from its own sandbox argument when
+	// CreateContainer saw none.
+	app := &api.PodSandbox{Id: "sb2", Namespace: "shop", Name: "web"}
+	ctr3 := &api.Container{Id: "c3", PodSandboxId: "sb2", Linux: &api.LinuxContainer{CgroupsPath: "/"}}
+	if _, _, err := p.CreateContainer(ctx, nil, ctr3); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.StartContainer(ctx, app, ctr3); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.allowed) != 1 || started != 1 {
+		t.Fatalf("in-scope container: allowed=%d started=%d, want 1/1", len(m.allowed), started)
+	}
+}

@@ -102,6 +102,8 @@ kubectl -n tracepod logs daemonset/tracepod-sensor | grep -E "NRI|tracking"
 | `sensor.controllerToken.audience` | `tracepod-ingest` | Audience the projected token is bound to; the receiving controller validates the token (e.g. with a TokenReview) for this audience |
 | `sensor.controllerToken.expirationSeconds` | `3600` | Projected token lifetime (Kubernetes minimum 600); the kubelet rotates the token and the sensor re-reads it on every POST |
 | `sensor.snapshotInterval` | `""` | Go duration (>= `10s`, e.g. `5m`); when set, the sensor POSTs cumulative interim snapshots of running containers to `controllerURL` at this interval. Empty = off. See the main README, "Interim profile snapshots" |
+| `sensor.namespaces.include` | `[]` | Namespaces to profile (exact names or globs such as `team-*`); empty = every namespace. Rendered as `--namespaces-include` only when non-empty. See the main README, "Limit the sensor to chosen namespaces" |
+| `sensor.namespaces.exclude` | `[]` | Namespaces never to profile (exact names or globs); wins over `include`. Rendered as `--namespaces-exclude` only when non-empty |
 | `sensor.profileHostPath` | `/var/lib/tracepod/profiles` | Node-local path for profile output (standalone only) |
 | `sensor.resources` | `{}` | Container resource requests/limits |
 | `sensor.nodeSelector` | `{}` | Node selector for the DaemonSet |
