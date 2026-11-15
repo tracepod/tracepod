@@ -69,6 +69,20 @@ jobs:
       - uses: azure/setup-helm@v4
       - name: helm lint
         run: helm lint helm/tracepod
+      - name: helm template (namespace scope flags)
+        run: |
+          set -euo pipefail
+          # Defaults: no namespace flags (older sensors exit on unknown flags).
+          if helm template t helm/tracepod | grep -q -- '--namespaces-'; then
+            echo "namespace flags rendered with default values"; exit 1
+          fi
+          # Values from an older chart (no sensor.namespaces key) still render.
+          helm template t helm/tracepod --set sensor.namespaces=null > /dev/null
+          out=$(helm template t helm/tracepod \
+            --set 'sensor.namespaces.include={shop,team-*}' \
+            --set 'sensor.namespaces.exclude={kube-system}')
+          grep -qx -- '          - --namespaces-include=shop,team-\*' <<<"$out"
+          grep -qx -- '          - --namespaces-exclude=kube-system' <<<"$out"
 
   goreleaser-check:
     name: goreleaser check

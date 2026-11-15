@@ -93,6 +93,11 @@ type Plugin struct {
 	// metadata for the pod that owned this container.
 	onStop func(containerID string, cgroupID uint64, pod PodMeta)
 
+	// allowNamespace, when set, decides whether a container is adopted from its
+	// pod namespace ("" = unknown). A container it rejects is never added to the
+	// BPF allowlist and never reaches onStart/onStop. nil adopts everything.
+	allowNamespace func(ns string) bool
+
 	mu      sync.Mutex
 	paths   map[string]string  // containerID → cgroupsPath (from CreateContainer)
 	ids     map[string]uint64  // containerID → cgroup ID (from StartContainer)
@@ -112,6 +117,12 @@ func NewPlugin(allower CgroupAllower, onStart func(StartInfo), onStop func(conta
 		ids:     make(map[string]uint64),
 		podMeta: make(map[string]PodMeta),
 	}
+}
+
+// SetNamespaceFilter installs the namespace predicate consulted before a
+// container is adopted (see Plugin.allowNamespace). Call it before Start.
+func (p *Plugin) SetNamespaceFilter(allow func(ns string) bool) {
+	p.allowNamespace = allow
 }
 
 // Start connects to the containerd NRI socket and begins receiving container
@@ -171,12 +182,22 @@ func (p *Plugin) CreateContainer(
 // starts. This is the earliest safe point to resolve the cgroup path to an ID.
 func (p *Plugin) StartContainer(
 	_ context.Context,
-	_ *api.PodSandbox,
+	sandbox *api.PodSandbox,
 	ctr *api.Container,
 ) error {
 	p.mu.Lock()
 	cgPath, ok := p.paths[ctr.GetId()]
 	pod := p.podMeta[ctr.GetId()] // cached at CreateContainer; zero value if absent
+	if pod.Namespace == "" && sandbox.GetNamespace() != "" {
+		pod = PodMeta{
+			Namespace:   sandbox.GetNamespace(),
+			Name:        sandbox.GetName(),
+			Annotations: sandbox.GetAnnotations(),
+		}
+		if ok {
+			p.podMeta[ctr.GetId()] = pod
+		}
+	}
 	p.mu.Unlock()
 	if !ok {
 		// Container was not seen in CreateContainer (e.g. predated sensor startup).
@@ -212,6 +233,20 @@ func (p *Plugin) StartContainer(
 // every fresh start as a lost race. cgPath must already be resolved to an
 // absolute /sys/fs/cgroup path.
 func (p *Plugin) adopt(ctr *api.Container, cgPath string, alreadyRunning bool, pod PodMeta, mode manifest.AdoptionMode) {
+	// Namespace scope: a container outside it is never allowlisted in-kernel and
+	// never gets an aggregator, so it is neither profiled nor reported. Drop the
+	// state CreateContainer/Synchronize recorded: StopContainer returns early for
+	// containers it never adopted, so nothing else would clean it up.
+	if p.allowNamespace != nil && !p.allowNamespace(pod.Namespace) {
+		p.mu.Lock()
+		delete(p.paths, ctr.GetId())
+		delete(p.podMeta, ctr.GetId())
+		p.mu.Unlock()
+		fmt.Fprintf(os.Stderr, "sensor: skip id=%s ns=%q pod=%q — namespace out of scope\n",
+			ctr.GetId(), pod.Namespace, pod.Name)
+		return
+	}
+
 	id, err := CgroupIDFromPath(cgPath)
 	if err != nil {
 		// Log and continue — don't block the container from starting.

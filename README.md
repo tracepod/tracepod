@@ -452,6 +452,44 @@ Semantics:
   endpoint must tolerate repeated POSTs for the same window; a receiver that sums POSTs
   instead of replacing/merging by `profile_start` will over-count.
 
+## Limit the sensor to chosen namespaces
+
+By default the sensor profiles every Kubernetes container on its node, including system
+namespaces such as `kube-system`. To keep a trial to a few namespaces (for change control,
+data minimisation, or less storage on the receiving side), limit it with two flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--namespaces-include <list>` | empty (every namespace) | Comma-separated namespaces to profile. Helm: `sensor.namespaces.include` (a list). |
+| `--namespaces-exclude <list>` | empty | Comma-separated namespaces never to profile. Helm: `sensor.namespaces.exclude` (a list). |
+
+```yaml
+# values.yaml
+sensor:
+  namespaces:
+    include: [shop, payments]
+    exclude: [kube-system]
+```
+
+Rules:
+
+- Entries are exact names or globs (`team-*`, `shop-?`, `[ab]-api`; Go `path.Match`
+  syntax). A malformed pattern stops the sensor at startup.
+- An empty include list means every namespace. Exclude wins over include.
+- The check runs when containerd reports the container, before its cgroup is added to the
+  in-kernel allowlist: an out-of-scope container's file events are never collected, no
+  profile is written to `--profile-dir` and nothing is POSTed for it. If the namespace is
+  known only when the container stops, the profile is dropped then.
+- A container whose namespace is unknown (no pod metadata, e.g. started with `crictl`
+  outside a pod) is profiled only when the include list is empty.
+- `--cgroup-path` mode: the manually added cgroup has no namespace and is always traced.
+  Containers the sensor also discovers through NRI in that mode are still scoped.
+- The sensor logs the effective scope at startup
+  (`sensor: namespace scope: include=shop,payments exclude=kube-system`) and one
+  `namespace out of scope` line per skipped container.
+- Changing the scope affects only containers started (or adopted at sensor startup) after
+  the change. Profiles already written or sent are not removed.
+
 ## Troubleshooting
 
 ### No profiles appear after the container stops
@@ -483,7 +521,13 @@ Semantics:
    `--snapshot-interval` and `--controller-url` it also POSTs interim snapshots while the
    container runs — see [Interim profile snapshots](#interim-profile-snapshots).
 
-5. **Check which containers the sensor is tracking:**
+5. **Is the namespace in scope?**
+   With `--namespaces-include`/`--namespaces-exclude` set, containers outside the scope are
+   skipped. The startup log line `sensor: namespace scope: ...` shows the effective scope;
+   skipped containers log `namespace out of scope`.
+   See [Limit the sensor to chosen namespaces](#limit-the-sensor-to-chosen-namespaces).
+
+6. **Check which containers the sensor is tracking:**
    ```bash
    kubectl logs -n tracepod daemonset/tracepod-sensor | grep "tracking"
    # sensor: tracking  container=<id> cgroup=<n>

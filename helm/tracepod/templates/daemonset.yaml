@@ -1,5 +1,7 @@
 {{- /* dig keeps upgrades with --reuse-values (values from an older chart without these keys) rendering. */ -}}
 {{- $tokenEnabled := dig "controllerToken" "enabled" true .Values.sensor -}}
+{{- $nsInclude := dig "namespaces" "include" (list) .Values.sensor -}}
+{{- $nsExclude := dig "namespaces" "exclude" (list) .Values.sensor -}}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -49,6 +51,12 @@ spec:
           {{- end }}
           {{- if .Values.sensor.snapshotInterval }}
           - --snapshot-interval={{ .Values.sensor.snapshotInterval }}
+          {{- end }}
+          {{- with $nsInclude }}
+          - --namespaces-include={{ join "," . }}
+          {{- end }}
+          {{- with $nsExclude }}
+          - --namespaces-exclude={{ join "," . }}
           {{- end }}
         env:
         - name: NODE_NAME
