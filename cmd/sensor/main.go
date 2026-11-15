@@ -28,6 +28,13 @@
 //	--controller-url <url>   Tracepod controller URL; when set, manifests are POSTed
 //	                         to the controller instead of written to --profile-dir
 //	                         (e.g. http://tracepod-controller.tracepod.svc:8080)
+//	--controller-token-file <path>
+//	                         file holding a bearer token for --controller-url. When
+//	                         set, the file is re-read on every POST (so a rotated
+//	                         projected ServiceAccount token is picked up) and sent
+//	                         as "Authorization: Bearer <token>". An unreadable or
+//	                         empty file fails that POST. Default empty: no
+//	                         Authorization header. Ignored without --controller-url.
 //	--node-name <name>       node name included in controller POSTs; set automatically
 //	                         via the Downward API in DaemonSet deployments
 //	--cgroup-path <path>     manually add a cgroup to the allowlist and start a
@@ -103,6 +110,7 @@ func main() {
 	cgroupPath := flag.String("cgroup-path", "", "manually allow this cgroup path (debug)")
 	profileDir := flag.String("profile-dir", "profiles", "directory for manifest output")
 	controllerURL := flag.String("controller-url", "", "TracePod controller URL for K8s mode (e.g. http://tracepod-controller.tracepod.svc:8080)")
+	controllerTokenFile := flag.String("controller-token-file", "", "file holding a bearer token sent to --controller-url as \"Authorization: Bearer\" (re-read on every POST, e.g. a projected ServiceAccount token); empty sends no Authorization header")
 	nodeName := flag.String("node-name", "", "node name (set via Downward API in DaemonSet)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	verbose := flag.Bool("verbose", false, "print every file-open event to stderr (noisy; for debugging)")
@@ -145,6 +153,18 @@ func main() {
 
 	// router dispatches ring buffer events to the right per-container aggregator.
 	router := newRouter(p, *profileDir, *controllerURL, *nodeName, resolver, *verbose)
+	switch {
+	case *controllerTokenFile != "" && *controllerURL == "":
+		fmt.Fprintln(os.Stderr, "sensor: --controller-token-file ignored: it requires --controller-url")
+	case *controllerTokenFile != "":
+		if _, err := sensor.ReadToken(*controllerTokenFile); err != nil {
+			// Not fatal: the kubelet may not have written a projected token
+			// yet; every POST re-reads the file and reports its own error.
+			fmt.Fprintf(os.Stderr, "sensor: warning: %v\n", err)
+		}
+		router.controllerTokenFile = *controllerTokenFile
+		fmt.Fprintf(os.Stderr, "sensor: controller requests authenticate with the token in %s\n", *controllerTokenFile)
+	}
 	stopSnapshots := func() {}
 	switch {
 	case *snapshotInterval > 0 && *controllerURL == "":
@@ -229,8 +249,11 @@ type cgroupRouter struct {
 	profileDir    string
 	controllerURL string
 	nodeName      string
-	resolver      sensor.WorkloadResolver // nil in standalone mode
-	verbose       bool
+	// controllerTokenFile, when set, holds the bearer token sent with every
+	// controller POST; it is re-read per request (projected tokens rotate).
+	controllerTokenFile string
+	resolver            sensor.WorkloadResolver // nil in standalone mode
+	verbose             bool
 
 	// snapshotInterval enables interim snapshots when > 0 (see snapshot.go).
 	// now is the clock used for snapshot scheduling; nil means time.Now.
@@ -625,7 +648,7 @@ func (r *cgroupRouter) flush(agg *manifest.Aggregator, target *postTarget, termi
 func (r *cgroupRouter) postSnapshot(ctx context.Context, target *postTarget, dep, imageRef string, snap manifest.Manifest) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := sensor.PostProfile(ctx, r.controllerURL, target.pod.Namespace, dep, target.pod.Name, r.nodeName, snap); err != nil {
+	if err := sensor.PostProfile(ctx, r.controllerURL, r.controllerTokenFile, target.pod.Namespace, dep, target.pod.Name, r.nodeName, snap); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "sensor: profile posted → %s/%s image=%s\n", target.pod.Namespace, dep, imageRef)

@@ -1,3 +1,5 @@
+{{- /* dig keeps upgrades with --reuse-values (values from an older chart without these keys) rendering. */ -}}
+{{- $tokenEnabled := dig "controllerToken" "enabled" true .Values.sensor -}}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -33,6 +35,9 @@ spec:
           - --node-name=$(NODE_NAME)
           {{- if .Values.sensor.controllerURL }}
           - --controller-url={{ .Values.sensor.controllerURL }}
+          {{- if $tokenEnabled }}
+          - --controller-token-file=/var/run/secrets/tracepod/controller-token/token
+          {{- end }}
           {{- else }}
           - --profile-dir=/profiles
           {{- end }}
@@ -72,6 +77,10 @@ spec:
         {{- if not .Values.sensor.controllerURL }}
         - name: profiles
           mountPath: /profiles
+        {{- else if $tokenEnabled }}
+        - name: controller-token
+          mountPath: /var/run/secrets/tracepod/controller-token
+          readOnly: true
         {{- end }}
       volumes:
       - name: sys-kernel-btf
@@ -91,6 +100,16 @@ spec:
         hostPath:
           path: {{ .Values.sensor.profileHostPath }}
           type: DirectoryOrCreate
+      {{- else if $tokenEnabled }}
+      # Projected ServiceAccount token for --controller-token-file, bound to
+      # the configured audience; the kubelet rotates it before it expires.
+      - name: controller-token
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: token
+              audience: {{ required "sensor.controllerToken.audience is required when sensor.controllerToken.enabled is true" (dig "controllerToken" "audience" "tracepod-ingest" .Values.sensor) | quote }}
+              expirationSeconds: {{ dig "controllerToken" "expirationSeconds" 3600 .Values.sensor | int }}
       {{- end }}
       {{- with .Values.sensor.nodeSelector }}
       nodeSelector:

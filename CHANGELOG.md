@@ -6,6 +6,18 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `--controller-token-file <path>`: the sensor can authenticate to the configured
+  controller URL with a bearer token. The file is re-read on every POST (so a rotated
+  projected ServiceAccount token is picked up) and sent as
+  `Authorization: Bearer <token>`. Default unset: no header, as before.
+- Helm `sensor.controllerToken.{enabled,audience,expirationSeconds}` (default
+  `true`, `tracepod-ingest`, `3600`): when `sensor.controllerURL` is set, the chart
+  mounts a projected ServiceAccount token for the sensor's ServiceAccount and passes
+  `--controller-token-file`. A receiver that checks the token needs no other change on
+  the sensor side; one that ignores the header keeps working.
+
 ## [0.2.11] - 2026-11-14
 
 ### Changed

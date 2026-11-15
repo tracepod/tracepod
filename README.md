@@ -404,6 +404,21 @@ See [docs/CONFIDENCE.md](docs/CONFIDENCE.md) for the full breakdown.
 Confidence:  82/100 (High) — short profiling window; startup race (4 paths)
 ```
 
+## Authenticating to the controller URL
+
+With `--controller-url` set, the sensor can authenticate every POST with a bearer token:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--controller-token-file <path>` | empty (no `Authorization` header) | Read a bearer token from this file and send it as `Authorization: Bearer <token>` on every POST to `--controller-url`. The file is re-read on every request, so a rotated projected ServiceAccount token is picked up without a restart. An unreadable or empty file fails that POST (it is never sent without the token). Ignored without `--controller-url`. |
+
+The Helm chart turns this on by default when `sensor.controllerURL` is set: it mounts a
+projected ServiceAccount token for the sensor's ServiceAccount with audience
+`tracepod-ingest` and a one-hour lifetime (`sensor.controllerToken.*`). The receiving side
+can validate the token with a Kubernetes `TokenReview` for that audience and check that the
+caller is `system:serviceaccount:<release namespace>:<release>-sensor`. Set
+`sensor.controllerToken.enabled=false` to send no token.
+
 ## Interim profile snapshots
 
 By default the sensor reports a container's profile only when the container stops (or when

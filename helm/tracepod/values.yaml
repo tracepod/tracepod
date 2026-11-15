@@ -26,6 +26,20 @@ sensor:
   #   controllerURL: "http://tracepod-controller.tracepod.svc:8080"
   controllerURL: ""
 
+  # controllerToken: when controllerURL is set, the sensor authenticates to it
+  # with a projected ServiceAccount token. The chart mounts a token for the
+  # sensor's ServiceAccount, bound to `audience` and valid for
+  # `expirationSeconds` (the kubelet rotates it before it expires), and passes
+  # --controller-token-file. The sensor re-reads the file on every POST and
+  # sends "Authorization: Bearer <token>". The receiving controller can check
+  # the token with a Kubernetes TokenReview for that audience. Set enabled to
+  # false to send no Authorization header. Ignored in standalone mode.
+  controllerToken:
+    enabled: true
+    audience: tracepod-ingest
+    # expirationSeconds: token lifetime; Kubernetes requires at least 600.
+    expirationSeconds: 3600
+
   # snapshotInterval: while a container runs, the sensor POSTs a cumulative
   # interim profile snapshot (profile_terminal=false) to controllerURL at this
   # interval, in addition to the terminal POST at container stop. A Go duration
