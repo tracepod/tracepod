@@ -6,6 +6,28 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The hardener can now run as a non-root user. Building an image that contains a file
+  without owner read (`/etc/shadow` and `/etc/gshadow` are mode 0000 on RHEL, UBI and
+  Amazon Linux; `sudo` is 4111) failed with `create OCI layer: ... permission denied`.
+  The staging tree now always gives the calling user read access to files and full
+  access to directories, stages device nodes and fifos as placeholders and never
+  applies extended attributes to disk, so the ELF resolver, inventory and package scan
+  also see every file.
+- Hardened layer entries now take their type, mode, owner (uid, gid and names), mtime,
+  device numbers and extended attributes from the source layer's tar header instead of
+  the staged copy. Before, setuid/setgid/sticky bits were dropped (`/tmp` lost 1777,
+  `sudo` lost setuid), every entry was owned by 0:0 with a zero mtime, file
+  capabilities such as `security.capability` on `ping` were lost, device nodes and
+  fifos became empty regular files, and directories such as `/root` (0550) were written
+  as 0755. Root and non-root builds now produce the same layer. Layer digests change
+  for the same input compared with earlier releases.
+- A whiteout of a directory now removes the whole directory from the staging tree.
+- `harden extract` writes files with owner read+write added and without
+  setuid/setgid bits, because the staging tree it copies from no longer carries the
+  source modes on disk.
+
 ## [0.2.13] - 2026-11-15
 
 ### Added

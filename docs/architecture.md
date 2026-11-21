@@ -104,7 +104,7 @@ produces a new minimal image:
 1. **Pull** the source image via `google/go-containerregistry`
 2. **Resolve ELF dependencies** — walk each `direct` binary's shared library requirements
    recursively via `readelf` + `ld.so.conf` parsing
-3. **Build a single deterministic layer** — sorted paths, zero mtime, scratch base
+3. **Build a single deterministic layer** — sorted paths, mode, owner, mtime and xattrs from the source layer headers, scratch base
 4. **Preserve the original config** — `Entrypoint`, `Cmd`, `Env`, `User`, `WorkingDir`,
    `ExposedPorts`, `Healthcheck`; add `com.tracepod.*` provenance labels
 5. **Write OCI layout** to disk; optionally push via crane

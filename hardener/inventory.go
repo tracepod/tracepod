@@ -176,7 +176,7 @@ func (t layerTree) removeBelow(p string) {
 // inventoryForLayer reads the hardened tree from the built layer itself (so
 // the inventory describes exactly what a runtime extracts) and merges it with
 // the extracted source tree in stagingDir.
-func inventoryForLayer(stagingDir string, layer v1.Layer) ([]InventoryEntry, error) {
+func inventoryForLayer(stagingDir string, layer v1.Layer, meta stagingMeta) ([]InventoryEntry, error) {
 	rc, err := layer.Uncompressed()
 	if err != nil {
 		return nil, fmt.Errorf("open hardened layer: %w", err)
@@ -186,7 +186,7 @@ func inventoryForLayer(stagingDir string, layer v1.Layer) ([]InventoryEntry, err
 	if err != nil {
 		return nil, err
 	}
-	return collectInventory(stagingDir, tree)
+	return collectInventoryMeta(stagingDir, tree, meta)
 }
 
 // collectInventory walks the extracted source tree rooted at stagingDir and
@@ -197,6 +197,12 @@ func inventoryForLayer(stagingDir string, layer v1.Layer) ([]InventoryEntry, err
 // usr/lib) appears under its source name (/usr/lib/x) and, when the hardened
 // layer holds it under the accessed name, as a hardened-only entry (/lib/x).
 func collectInventory(stagingDir string, hardened layerTree) ([]InventoryEntry, error) {
+	return collectInventoryMeta(stagingDir, hardened, nil)
+}
+
+// collectInventoryMeta is collectInventory that types device nodes and fifos
+// (staged as placeholder files, see stagingMeta) from their source metadata.
+func collectInventoryMeta(stagingDir string, hardened layerTree, meta stagingMeta) ([]InventoryEntry, error) {
 	entries := []InventoryEntry{}
 	seen := make(map[string]struct{}, len(hardened))
 	err := filepath.WalkDir(stagingDir, func(p string, d fs.DirEntry, err error) error {
@@ -223,6 +229,8 @@ func collectInventory(stagingDir string, hardened layerTree) ([]InventoryEntry, 
 			e.LinkTarget = target
 		case t.IsDir():
 			e.Type = InventoryTypeDir
+		case t.IsRegular() && meta.lookup(stagingDir, p).isSpecial():
+			e.Type = InventoryTypeOther
 		case t.IsRegular():
 			e.Type = InventoryTypeFile
 		default:
