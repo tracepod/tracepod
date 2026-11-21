@@ -6,6 +6,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-11-21
+
 ### Fixed
 
 - The hardener can now run as a non-root user. Building an image that contains a file
@@ -534,7 +536,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 - `schema_version` changed type from string (`"1"`) to integer (`2`). Consumers
   must treat a string `schema_version` (or its absence) as a legacy v1 profile.
 
-[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.13...HEAD
+[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.14...HEAD
+[0.2.14]: https://github.com/tracepod/tracepod/compare/v0.2.13...v0.2.14
 [0.2.13]: https://github.com/tracepod/tracepod/compare/v0.2.12...v0.2.13
 [0.2.12]: https://github.com/tracepod/tracepod/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/tracepod/tracepod/compare/v0.2.10...v0.2.11
