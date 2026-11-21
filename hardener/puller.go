@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -42,8 +43,13 @@ type PullOptions struct {
 //   - .wh.<name>     — deletes the named sibling file from stagingDir.
 //   - .wh..wh..opq   — opaque whiteout: clears the parent directory.
 //
-// Symlinks are written as symlinks (not dereferenced).
-// File permissions from the tar header are preserved.
+// Symlinks are written as symlinks (not dereferenced). The staging tree is
+// readable and writable by the calling user whatever the source modes are:
+// regular files get owner read+write (setuid, setgid and sticky are dropped),
+// directories owner rwx, and device nodes and fifos are created as empty
+// placeholder files. Extended attributes are not applied. This lets the
+// hardener run without privileges; BuildImage takes the real metadata from the
+// source layers' tar headers.
 //
 // After extraction, call ResolveELFDependencies(stagingDir, m) to find
 // inferred-elf entries. Then call CopyFileSet(m, stagingDir, destDir) to
@@ -55,6 +61,22 @@ func ExtractFromImage(
 	stagingDir string,
 	opts PullOptions,
 ) (missing []string, err error) {
+	if _, err := extractImage(ctx, imageRef, stagingDir, opts); err != nil {
+		return nil, err
+	}
+
+	// Identify manifest paths absent from the staging (ENOENT probes).
+	for path := range m.Files {
+		if _, err := os.Lstat(filepath.Join(stagingDir, path)); err != nil {
+			missing = append(missing, path)
+		}
+	}
+	return missing, nil
+}
+
+// extractImage pulls imageRef, extracts every layer into stagingDir and
+// returns the source metadata of every extracted path (see stagingMeta).
+func extractImage(ctx context.Context, imageRef, stagingDir string, opts PullOptions) (stagingMeta, error) {
 	if opts.Platform == "" {
 		opts.Platform = "linux/amd64"
 	}
@@ -89,19 +111,13 @@ func ExtractFromImage(
 	}
 
 	// Extract ALL files (nil wanted = extract everything).
+	meta := stagingMeta{}
 	for _, layer := range layers {
-		if err := extractLayer(layer, stagingDir, nil); err != nil {
+		if err := extractLayer(layer, stagingDir, nil, meta); err != nil {
 			return nil, err
 		}
 	}
-
-	// Identify manifest paths absent from the staging (ENOENT probes).
-	for path := range m.Files {
-		if _, err := os.Lstat(filepath.Join(stagingDir, path)); err != nil {
-			missing = append(missing, path)
-		}
-	}
-	return missing, nil
+	return meta, nil
 }
 
 // CopyFileSet copies every file listed in m.Files from srcDir into destDir,
@@ -164,8 +180,10 @@ func CopyFileSet(m *manifest.Manifest, srcDir, destDir string) error {
 }
 
 // extractLayer iterates a single layer's tar and extracts or applies whiteouts.
-// wanted is updated in place: paths found are set to true.
-func extractLayer(layer v1.Layer, destDir string, wanted map[string]bool) error {
+// wanted is updated in place: paths found are set to true. When meta is
+// non-nil it records the header metadata of every extracted path and drops
+// whited-out paths.
+func extractLayer(layer v1.Layer, destDir string, wanted map[string]bool, meta stagingMeta) error {
 	rc, err := layer.Uncompressed()
 	if err != nil {
 		return fmt.Errorf("open layer: %w", err)
@@ -181,6 +199,9 @@ func extractLayer(layer v1.Layer, destDir string, wanted map[string]bool) error 
 		if err != nil {
 			return fmt.Errorf("read tar: %w", err)
 		}
+		if hdr.Typeflag == tar.TypeXGlobalHeader {
+			continue // PAX global header: not a filesystem entry
+		}
 
 		// Normalise: OCI tars may omit the leading slash.
 		name := hdr.Name
@@ -189,6 +210,7 @@ func extractLayer(layer v1.Layer, destDir string, wanted map[string]bool) error 
 		}
 		// Strip trailing slash from directory entries.
 		name = strings.TrimSuffix(name, "/")
+		key := path.Clean(name)
 
 		dir := filepath.Dir(name)
 		base := filepath.Base(name)
@@ -201,6 +223,7 @@ func extractLayer(layer v1.Layer, destDir string, wanted map[string]bool) error 
 				if err := removeDirectoryContents(destParent); err != nil {
 					fmt.Fprintf(os.Stderr, "warning: opaque whiteout on %s: %v\n", dir, err)
 				}
+				meta.forget(path.Clean(dir), true)
 			} else {
 				// Named whiteout: remove the specific file.
 				deleted := filepath.Join(dir, strings.TrimPrefix(base, ".wh."))
@@ -209,7 +232,9 @@ func extractLayer(layer v1.Layer, destDir string, wanted map[string]bool) error 
 					wanted[deleted] = true // mark found so we don't error later
 				}
 				destPath := filepath.Join(destDir, deleted)
-				_ = os.Remove(destPath)
+				// A whited-out directory goes with everything beneath it.
+				_ = os.RemoveAll(destPath)
+				meta.forget(path.Clean(deleted), true)
 			}
 			continue
 		}
@@ -226,11 +251,12 @@ func extractLayer(layer v1.Layer, destDir string, wanted map[string]bool) error 
 		if err := os.MkdirAll(parentDir, 0o755); err != nil {
 			return fmt.Errorf("mkdir %s: %w", parentDir, err)
 		}
-		// A previous layer may have set the parent directory to mode 000 (e.g.
-		// eclipse-temurin sets /usr/bin to 000 in an intermediate layer). Ensure
-		// the parent is always traversable so we can create entries inside it.
-		_ = os.Chmod(parentDir, 0o755)
+		// Staged directories always keep owner rwx (see stagedDirMode), even
+		// when a layer sets a restrictive mode such as 000 (eclipse-temurin
+		// does that to /usr/bin in an intermediate layer), so entries can
+		// always be created inside them without privileges.
 
+		sm := metaFromHeader(hdr)
 		switch hdr.Typeflag {
 		case tar.TypeSymlink:
 			// Remove existing symlink/file first (layer override).
@@ -245,11 +271,33 @@ func extractLayer(layer v1.Layer, destDir string, wanted map[string]bool) error 
 			if err := os.Link(target, destPath); err != nil {
 				return fmt.Errorf("hardlink %s → %s: %w", destPath, target, err)
 			}
+			// A hard link shares its target's inode, hence its metadata.
+			if tm, ok := meta[path.Clean("/"+hdr.Linkname)]; ok {
+				cp := *tm
+				sm = &cp
+			}
 
 		case tar.TypeDir:
-			if err := os.MkdirAll(destPath, hdr.FileInfo().Mode()); err != nil {
+			mode := stagedDirMode(hdr.Mode)
+			if err := os.MkdirAll(destPath, mode); err != nil {
 				return fmt.Errorf("mkdir %s: %w", destPath, err)
 			}
+			// MkdirAll leaves an existing directory alone and applies the
+			// umask to a new one: set the staged mode explicitly.
+			if err := os.Chmod(destPath, mode); err != nil {
+				return fmt.Errorf("chmod %s: %w", destPath, err)
+			}
+
+		case tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
+			// Creating device nodes needs privileges and opening a fifo
+			// blocks. Stage an empty placeholder; the layer writer emits the
+			// real entry from the header metadata.
+			_ = os.RemoveAll(destPath)
+			f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stagedFileMode(hdr.Mode))
+			if err != nil {
+				return fmt.Errorf("create %s: %w", destPath, err)
+			}
+			f.Close()
 
 		default:
 			// Remove any existing entry at destPath before writing. A later
@@ -259,8 +307,10 @@ func extractLayer(layer v1.Layer, destDir string, wanted map[string]bool) error 
 			// Also handles the case where a prior layer wrote the same file
 			// with restrictive permissions (000, execute-only) that would deny
 			// O_WRONLY — removing and recreating is simpler than chmod+retry.
+			// The staged copy always has owner read+write so the hardener can
+			// read it without privileges (stagedFileMode).
 			_ = os.Remove(destPath)
-			f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, hdr.FileInfo().Mode())
+			f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stagedFileMode(hdr.Mode))
 			if err != nil {
 				return fmt.Errorf("create %s: %w", destPath, err)
 			}
@@ -271,6 +321,13 @@ func extractLayer(layer v1.Layer, destDir string, wanted map[string]bool) error 
 			f.Close()
 		}
 
+		if meta != nil {
+			if hdr.Typeflag != tar.TypeDir {
+				// A non-directory replaces anything that was at this path.
+				meta.forget(key, true)
+			}
+			meta[key] = sm
+		}
 		if wanted != nil {
 			wanted[name] = true
 		}

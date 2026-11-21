@@ -234,15 +234,17 @@ func BuildImage(
 		return BuildResult{}, fmt.Errorf("resolve staging dir: %w", rErr)
 	}
 
-	// Extract the complete image filesystem (all layers). ExtractFromImage
+	// Extract the complete image filesystem (all layers). extractImage
 	// re-pulls the image internally; only the layer blobs are downloaded again
-	// (the manifest + config were already fetched above).
+	// (the manifest + config were already fetched above). The staging tree is
+	// readable by the calling user whatever the source modes; meta keeps
+	// the real metadata of every path for the layer writer.
 	pullOpts := PullOptions{
 		Keychain: opts.Keychain,
 		Platform: opts.Platform,
 		Insecure: opts.Insecure,
 	}
-	_, err = ExtractFromImage(ctx, sourceRef, m, stagingDir, pullOpts)
+	meta, err := extractImage(ctx, sourceRef, stagingDir, pullOpts)
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("extract image: %w", err)
 	}
@@ -303,7 +305,7 @@ func BuildImage(
 	// same skip count, so the value is stable once the layer has been digested.
 	var skippedProbes atomic.Int64
 	layer, err := tarball.LayerFromOpener(func() (io.ReadCloser, error) {
-		return buildLayerCounting(m, stagingDir, &skippedProbes)
+		return buildLayerCounting(m, stagingDir, meta, &skippedProbes)
 	})
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("create OCI layer: %w", err)
@@ -393,7 +395,7 @@ func BuildImage(
 		retained = append(retained, p)
 	}
 	if opts.RecordInventory {
-		result.Inventory, result.InventoryErr = inventoryForLayer(stagingDir, layer)
+		result.Inventory, result.InventoryErr = inventoryForLayer(stagingDir, layer, meta)
 		if result.InventoryErr != nil {
 			result.Inventory = nil
 		}
@@ -584,24 +586,27 @@ func addScratchCompatEntry(m *manifest.Manifest, path string, t time.Time) {
 
 // buildLayer produces a gzip-compressed, deterministic tar ReadCloser containing
 // all files in m.Files that exist in stagingDir. Paths are sorted for
-// reproducibility; modification times are zeroed. Parent directories are
-// synthesised as needed.
+// reproducibility. Parent directories are synthesised as needed. Without
+// source metadata (see buildLayerCounting) modes come from lstat and
+// modification times and ownership are zeroed.
 //
 // tarball.LayerFromOpener calls this opener multiple times (once per digest
 // computation, once when writing), so the output must be identical on every call.
 func buildLayer(m *manifest.Manifest, stagingDir string) (io.ReadCloser, error) {
-	return buildLayerCounting(m, stagingDir, nil)
+	return buildLayerCounting(m, stagingDir, nil, nil)
 }
 
-// buildLayerCounting is buildLayer that also records, when skipped is non-nil,
-// how many manifest paths were left out of the layer because they lie beneath
-// a non-directory.
-func buildLayerCounting(m *manifest.Manifest, stagingDir string, skipped *atomic.Int64) (io.ReadCloser, error) {
+// buildLayerCounting is buildLayer that takes every header's type, mode,
+// ownership, mtime, device numbers and extended attributes from meta (the
+// source layers' headers) when the path is in it, and also records, when
+// skipped is non-nil, how many manifest paths were left out of the layer
+// because they lie beneath a non-directory.
+func buildLayerCounting(m *manifest.Manifest, stagingDir string, meta stagingMeta, skipped *atomic.Int64) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 	go func() {
 		gw := gzip.NewWriter(pw)
 		tw := tar.NewWriter(gw)
-		n, err := writeTarEntriesCounting(tw, m, stagingDir)
+		n, err := writeLayerEntries(tw, m, stagingDir, meta)
 		if skipped != nil {
 			skipped.Store(int64(n))
 		}
@@ -663,7 +668,8 @@ func expandSymlinkTargets(m *manifest.Manifest, stagingDir string) {
 // writeTarEntries writes manifest entries into tw in sorted path order.
 // Parent directories are synthesised before each entry, unless one of them is
 // a non-directory in the source image or in this layer: such an entry is
-// skipped (an error for ensure entries). mtime is zeroed.
+// skipped (an error for ensure entries). Without source metadata (see
+// writeLayerEntries) mtime and ownership are zeroed.
 func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) error {
 	_, err := writeTarEntriesCounting(tw, m, stagingDir)
 	return err
@@ -672,6 +678,17 @@ func writeTarEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string) er
 // writeTarEntriesCounting is writeTarEntries that also returns the number of
 // paths skipped because a parent component is not a directory.
 func writeTarEntriesCounting(tw *tar.Writer, m *manifest.Manifest, stagingDir string) (skipped int, err error) {
+	return writeLayerEntries(tw, m, stagingDir, nil)
+}
+
+// writeLayerEntries is writeTarEntriesCounting with source metadata: a path
+// present in meta (looked up by its canonical staged location) is written
+// with the type, mode (including setuid/setgid/sticky), uid, gid, names,
+// mtime, device numbers and extended attributes of its source-layer header;
+// only the content and symlink target come from the staging tree. This is
+// what makes the layer independent of the user the hardener runs as. Paths
+// absent from meta (ensure entries, nil meta) keep the lstat-derived defaults.
+func writeLayerEntries(tw *tar.Writer, m *manifest.Manifest, stagingDir string, meta stagingMeta) (skipped int, err error) {
 	// Expand symlink targets before building the sorted path list so that
 	// symlinks pointing to targets absent from the manifest (e.g. python→python3,
 	// libz.so.1→libz.so.1.3.1) produce a non-dangling layer.
@@ -718,7 +735,16 @@ func writeTarEntriesCounting(tw *tar.Writer, m *manifest.Manifest, stagingDir st
 			continue
 		}
 
-		if err := ensureParentDirs(tw, path, emittedDirs, zeroTime); err != nil {
+		if err := ensureParentDirsMeta(tw, path, emittedDirs, zeroTime, func(dir string) *srcMeta {
+			if meta == nil {
+				return nil
+			}
+			sm := meta.lookup(stagingDir, inRootHostPath(stagingDir, dir))
+			if sm == nil || sm.Typeflag != tar.TypeDir {
+				return nil // absent, or a symlink to a directory (usrmerge /bin)
+			}
+			return sm
+		}); err != nil {
 			return skipped, err
 		}
 
@@ -766,6 +792,7 @@ func writeTarEntriesCounting(tw *tar.Writer, m *manifest.Manifest, stagingDir st
 
 		// OCI tar convention: no leading slash on entry names.
 		tarPath := strings.TrimPrefix(path, "/")
+		sm := meta.lookup(stagingDir, src)
 
 		switch {
 		case info.Mode()&os.ModeSymlink != 0:
@@ -773,12 +800,16 @@ func writeTarEntriesCounting(tw *tar.Writer, m *manifest.Manifest, stagingDir st
 			if err != nil {
 				return skipped, fmt.Errorf("readlink %s: %w", src, err)
 			}
-			if err := tw.WriteHeader(&tar.Header{
+			hdr := &tar.Header{
 				Typeflag: tar.TypeSymlink,
 				Name:     tarPath,
-				Linkname: target,
 				ModTime:  zeroTime,
-			}); err != nil {
+			}
+			if sm != nil && sm.Typeflag == tar.TypeSymlink {
+				hdr = sm.header(tar.TypeSymlink, tarPath)
+			}
+			hdr.Linkname = target
+			if err := tw.WriteHeader(hdr); err != nil {
 				return skipped, fmt.Errorf("tar symlink header %s: %w", path, err)
 			}
 			if isDir, _ := ancestorIsDir(stagingDir, path); !isDir {
@@ -787,29 +818,45 @@ func writeTarEntriesCounting(tw *tar.Writer, m *manifest.Manifest, stagingDir st
 
 		case info.IsDir():
 			if _, seen := emittedDirs[path]; !seen {
-				if err := tw.WriteHeader(&tar.Header{
+				hdr := &tar.Header{
 					Typeflag: tar.TypeDir,
 					Name:     tarPath + "/",
 					Mode:     int64(info.Mode().Perm()),
 					ModTime:  zeroTime,
-				}); err != nil {
+				}
+				if sm != nil && sm.Typeflag == tar.TypeDir {
+					hdr = sm.header(tar.TypeDir, tarPath+"/")
+				}
+				if err := tw.WriteHeader(hdr); err != nil {
 					return skipped, fmt.Errorf("tar dir header %s: %w", path, err)
 				}
 				emittedDirs[path] = struct{}{}
 			}
+
+		case sm.isSpecial():
+			// Device node or fifo: staged as an empty placeholder, written
+			// from the source header alone (never materialised, never read).
+			if err := tw.WriteHeader(sm.header(sm.Typeflag, tarPath)); err != nil {
+				return skipped, fmt.Errorf("tar special file header %s: %w", path, err)
+			}
+			emittedNonDirs[path] = struct{}{}
 
 		default:
 			f, err := os.Open(src)
 			if err != nil {
 				return skipped, fmt.Errorf("open %s: %w", src, err)
 			}
-			err = tw.WriteHeader(&tar.Header{
+			hdr := &tar.Header{
 				Typeflag: tar.TypeReg,
 				Name:     tarPath,
-				Size:     info.Size(),
 				Mode:     int64(info.Mode().Perm()),
 				ModTime:  zeroTime,
-			})
+			}
+			if sm != nil && sm.Typeflag == tar.TypeReg {
+				hdr = sm.header(tar.TypeReg, tarPath)
+			}
+			hdr.Size = info.Size()
+			err = tw.WriteHeader(hdr)
 			if err != nil {
 				f.Close()
 				return skipped, fmt.Errorf("tar file header %s: %w", path, err)
@@ -899,6 +946,14 @@ func checkEnsurePaths(stagingDir string, entries []EnsureEntry) error {
 // ensureParentDirs emits tar directory entries for every ancestor of path
 // that has not already been emitted.
 func ensureParentDirs(tw *tar.Writer, path string, emitted map[string]struct{}, zeroTime time.Time) error {
+	return ensureParentDirsMeta(tw, path, emitted, zeroTime, nil)
+}
+
+// ensureParentDirsMeta is ensureParentDirs where dirMeta, when non-nil,
+// returns the source metadata of an ancestor that is a real directory in the
+// source image (so /root keeps 0550 when only /root/.profile is kept). An
+// ancestor without metadata is written as root-owned 0755.
+func ensureParentDirsMeta(tw *tar.Writer, path string, emitted map[string]struct{}, zeroTime time.Time, dirMeta func(string) *srcMeta) error {
 	clean := strings.TrimPrefix(path, "/")
 	parts := strings.Split(clean, "/")
 	// Synthesise all ancestors except the final path component.
@@ -908,12 +963,18 @@ func ensureParentDirs(tw *tar.Writer, path string, emitted map[string]struct{}, 
 			continue
 		}
 		tarDir := strings.Join(parts[:i], "/") + "/"
-		if err := tw.WriteHeader(&tar.Header{
+		hdr := &tar.Header{
 			Typeflag: tar.TypeDir,
 			Name:     tarDir,
 			Mode:     0o755,
 			ModTime:  zeroTime,
-		}); err != nil {
+		}
+		if dirMeta != nil {
+			if sm := dirMeta(dir); sm != nil {
+				hdr = sm.header(tar.TypeDir, tarDir)
+			}
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
 			return fmt.Errorf("tar parent dir %s: %w", tarDir, err)
 		}
 		emitted[dir] = struct{}{}
