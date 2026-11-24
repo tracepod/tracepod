@@ -95,7 +95,7 @@ kubectl -n tracepod logs daemonset/tracepod-sensor | grep -E "NRI|tracking"
 | Value | Default | Description |
 |-------|---------|-------------|
 | `sensor.image.repository` | `ghcr.io/tracepod/tracepod-sensor` | Sensor container image |
-| `sensor.image.tag` | `""` | Image tag; empty defaults to `v<appVersion>` (currently `v0.2.14`) — override to pin a specific release tag |
+| `sensor.image.tag` | `""` | Image tag; empty defaults to `v<appVersion>` (currently `v0.2.15`) — override to pin a specific release tag |
 | `sensor.image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `sensor.controllerURL` | `""` | Tracepod controller URL; empty = standalone mode |
 | `sensor.controllerToken.enabled` | `true` | With `controllerURL` set, mount a projected ServiceAccount token for the sensor's ServiceAccount and pass `--controller-token-file`; every POST then carries `Authorization: Bearer <token>`. `false` sends no `Authorization` header |

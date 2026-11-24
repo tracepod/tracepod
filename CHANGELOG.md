@@ -6,6 +6,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+## [0.2.15] - 2026-11-24
+
 ### Changed
 
 - SBOM signing no longer uploads to the public transparency log by default.
@@ -548,7 +550,8 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 - `schema_version` changed type from string (`"1"`) to integer (`2`). Consumers
   must treat a string `schema_version` (or its absence) as a legacy v1 profile.
 
-[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.14...HEAD
+[Unreleased]: https://github.com/tracepod/tracepod/compare/v0.2.15...HEAD
+[0.2.15]: https://github.com/tracepod/tracepod/compare/v0.2.14...v0.2.15
 [0.2.14]: https://github.com/tracepod/tracepod/compare/v0.2.13...v0.2.14
 [0.2.13]: https://github.com/tracepod/tracepod/compare/v0.2.12...v0.2.13
 [0.2.12]: https://github.com/tracepod/tracepod/compare/v0.2.11...v0.2.12
