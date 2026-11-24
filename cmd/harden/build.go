@@ -53,7 +53,8 @@ func runBuild(args []string) int {
 		minProfileDuration = fs.Duration("min-profile-duration", manifest.DefaultMinProfileDuration, "Minimum recommended profiling window for confidence scoring")
 		verbose            = fs.Bool("verbose", false, "Print full confidence penalty breakdown and ELF audit warnings")
 		sbom               = fs.Bool("sbom", false, "Generate CycloneDX and SPDX SBOMs via syft into the --output directory")
-		sbomSignKey        = fs.String("sbom-sign-key", "", "Path to cosign private key for signing SBOMs (requires --sbom)")
+		sbomSignKey        = fs.String("sbom-sign-key", "", "Path to cosign private key for signing SBOMs (requires --sbom; password from COSIGN_PASSWORD)")
+		sbomSignTlog       = fs.Bool("sbom-sign-tlog-upload", false, "Also upload the SBOM signatures, with the public key and SBOM digests, to the public Sigstore transparency log (default: off, signing makes no network call)")
 		smokeTest          = fs.Bool("smoke-test", false, "After building, load the image into the local Docker daemon and run it briefly — fails the build if the minimized image cannot boot")
 		smokeWindow        = fs.Duration("smoke-window", 5*time.Second, "How long the smoke-test container must survive (requires --smoke-test)")
 		allowEmpty         = fs.Bool("allow-empty", false, "Build even when the manifest has zero direct (eBPF-observed) entries (default: refuse)")
@@ -247,7 +248,8 @@ func runBuild(args []string) int {
 	}
 
 	if *sbom {
-		if err := hardener.GenerateSBOM(ctx, *outputDir, *sourceRef, *sbomSignKey); err != nil {
+		sbomOpts := hardener.SBOMOptions{SignKey: *sbomSignKey, TlogUpload: *sbomSignTlog}
+		if err := hardener.GenerateSBOMWithOptions(ctx, *outputDir, *sourceRef, sbomOpts); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: sbom generation failed: %v\n", err)
 		} else {
 			fmt.Printf("SBOM:        %s/sbom.cyclonedx.json\n", *outputDir)

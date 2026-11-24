@@ -6,6 +6,18 @@ adheres to [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- SBOM signing no longer uploads to the public transparency log by default.
+  `harden build --sbom-sign-key` (and `hardener.GenerateSBOM`) now run
+  `cosign sign-blob --tlog-upload=false --yes`, so signing with a key makes no
+  network call and works without internet access. Before, cosign v2 sent each
+  signature, the public key and the SBOM digest to the public Sigstore log
+  (Rekor). Opt in with `--sbom-sign-tlog-upload` or
+  `hardener.GenerateSBOMWithOptions(..., SBOMOptions{TlogUpload: true})`.
+  Verify key-only signatures with
+  `cosign verify-blob --key cosign.pub --insecure-ignore-tlog`.
+
 ## [0.2.14] - 2026-11-21
 
 ### Fixed

@@ -133,7 +133,7 @@ func TestGenerateSBOM_SyftFailure(t *testing.T) {
 // when cosign is absent from PATH.
 func TestSignSBOM_CosignNotInPATH(t *testing.T) {
 	t.Setenv("PATH", "")
-	err := signSBOM(context.Background(), filepath.Join(t.TempDir(), "sbom.json"), "key.pem")
+	err := signSBOM(context.Background(), filepath.Join(t.TempDir(), "sbom.json"), "key.pem", false)
 	if err == nil {
 		t.Fatal("expected error when cosign not in PATH, got nil")
 	}
@@ -155,7 +155,7 @@ func TestSignSBOM_CreatesSignatureArg(t *testing.T) {
 	sbomPath := filepath.Join(t.TempDir(), "sbom.cyclonedx.json")
 	keyPath := "/keys/cosign.key"
 
-	if err := signSBOM(context.Background(), sbomPath, keyPath); err != nil {
+	if err := signSBOM(context.Background(), sbomPath, keyPath, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(*calls) == 0 {
@@ -171,6 +171,84 @@ func TestSignSBOM_CreatesSignatureArg(t *testing.T) {
 	}
 	if !strings.Contains(joined, keyPath) {
 		t.Errorf("expected key path %q in args: %s", keyPath, joined)
+	}
+}
+
+// ── transparency log: off unless asked ───────────────────────────────────────
+
+// TestGenerateSBOM_TlogUploadArgs checks the exact cosign argument list for
+// both SBOM files: GenerateSBOM never uploads to the public transparency log,
+// GenerateSBOMWithOptions uploads only with TlogUpload set.
+func TestGenerateSBOM_TlogUploadArgs(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func(dir string) error
+		tlog string
+	}{
+		{"GenerateSBOM", func(dir string) error {
+			return GenerateSBOM(context.Background(), dir, "", "/keys/cosign.key")
+		}, "--tlog-upload=false"},
+		{"options default", func(dir string) error {
+			return GenerateSBOMWithOptions(context.Background(), dir, "", SBOMOptions{SignKey: "/keys/cosign.key"})
+		}, "--tlog-upload=false"},
+		{"options TlogUpload", func(dir string) error {
+			return GenerateSBOMWithOptions(context.Background(), dir, "", SBOMOptions{SignKey: "/keys/cosign.key", TlogUpload: true})
+		}, "--tlog-upload=true"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fakebin := t.TempDir()
+			fakeSyft := fakeBin(t, fakebin, "syft", 0)
+			fakeCosign := fakeBin(t, fakebin, "cosign", 0)
+			t.Setenv("PATH", fakebin)
+			var calls [][]string
+			orig := execCommandContext
+			execCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+				calls = append(calls, append([]string{name}, args...))
+				if strings.HasSuffix(name, "cosign") {
+					return exec.CommandContext(ctx, fakeCosign)
+				}
+				return exec.CommandContext(ctx, fakeSyft)
+			}
+			t.Cleanup(func() { execCommandContext = orig })
+
+			dir := t.TempDir()
+			if err := c.run(dir); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			var got [][]string
+			for _, call := range calls {
+				if strings.HasSuffix(call[0], "cosign") {
+					got = append(got, call[1:])
+				}
+			}
+			if len(got) != 2 {
+				t.Fatalf("cosign calls = %d, want 2", len(got))
+			}
+			for i, f := range []string{"sbom.cyclonedx.json", "sbom.spdx.json"} {
+				p := filepath.Join(dir, f)
+				want := []string{"sign-blob", "--key", "/keys/cosign.key", "--output-signature", p + ".sig", c.tlog, "--yes", p}
+				if strings.Join(got[i], " ") != strings.Join(want, " ") {
+					t.Errorf("cosign args =\n  %q\nwant\n  %q", got[i], want)
+				}
+			}
+		})
+	}
+}
+
+// TestGenerateSBOM_NoKeyNoCosign: without a key cosign is never run.
+func TestGenerateSBOM_NoKeyNoCosign(t *testing.T) {
+	fakebin := t.TempDir()
+	fakeSyft := fakeBin(t, fakebin, "syft", 0)
+	t.Setenv("PATH", fakebin)
+	calls := withMockExec(t, fakeSyft)
+	if err := GenerateSBOMWithOptions(context.Background(), t.TempDir(), "", SBOMOptions{TlogUpload: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, c := range *calls {
+		if strings.HasSuffix(c[0], "cosign") {
+			t.Errorf("cosign ran without a key: %q", c)
+		}
 	}
 }
 
